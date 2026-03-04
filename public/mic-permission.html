@@ -11,24 +11,11 @@
       background: #f9fafb; color: #374151;
     }
     .msg { text-align: center; font-size: 14px; color: #6b7280; }
+    .error { color: #dc2626; }
   </style>
 </head>
 <body>
   <div class="msg" id="msg">Requesting microphone access...</div>
-  <script>
-    (async () => {
-      const msg = document.getElementById('msg');
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(t => t.stop());
-        msg.textContent = 'Microphone access granted!';
-        chrome.runtime.sendMessage({ type: 'MIC_PERMISSION_GRANTED' });
-        setTimeout(() => window.close(), 800);
-      } catch (err) {
-        msg.textContent = 'Microphone access was denied. You can re-enable it by clicking the lock icon in your address bar.';
-        msg.style.color = '#dc2626';
-      }
-    })();
-  </script>
+  <script src="mic-permission.js"></script>
 </body>
 </html>
