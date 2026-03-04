@@ -11,6 +11,8 @@ import {
   Mic,
   X,
   Loader,
+  Check,
+  AlertCircle,
   ChevronDown,
   MessageSquare,
   Upload,
@@ -312,8 +314,12 @@ export function SidePanelApp() {
     setStreaming(false);
   };
 
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const saveStatusTimer = useRef<ReturnType<typeof setTimeout>>();
+
   const handleSave = async () => {
     if (messages.length === 0) return;
+    setSaveStatus('saving');
     try {
       const title =
         messages[0].content.slice(0, 50) +
@@ -325,18 +331,29 @@ export function SidePanelApp() {
           content: m.content,
         })),
       });
+      setSaveStatus('saved');
     } catch {
-      // ignore
+      setSaveStatus('error');
     }
+    clearTimeout(saveStatusTimer.current);
+    saveStatusTimer.current = setTimeout(() => setSaveStatus('idle'), 2500);
   };
 
+  const [convoLoading, setConvoLoading] = useState(false);
+  const [convoError, setConvoError] = useState<string | null>(null);
+
   const loadConversations = async () => {
+    setConvoLoading(true);
+    setConvoError(null);
     try {
       const convs = await listConversations();
       setConversations(convs);
       setShowConversations(true);
-    } catch {
-      // ignore
+    } catch (err: any) {
+      setConvoError(err?.message || 'Failed to load conversations');
+      setShowConversations(true);
+    } finally {
+      setConvoLoading(false);
     }
   };
 
@@ -426,11 +443,22 @@ export function SidePanelApp() {
           </button>
           <button
             onClick={handleSave}
-            className="btn-ghost p-1.5 rounded-lg"
-            title="Save conversation"
-            disabled={messages.length === 0}
+            className={`btn-ghost p-1.5 rounded-lg ${
+              saveStatus === 'saved' ? 'text-green-500' :
+              saveStatus === 'error' ? 'text-red-500' : ''
+            }`}
+            title={
+              saveStatus === 'saving' ? 'Saving...' :
+              saveStatus === 'saved' ? 'Saved!' :
+              saveStatus === 'error' ? 'Failed to save' :
+              'Save conversation'
+            }
+            disabled={messages.length === 0 || saveStatus === 'saving'}
           >
-            <Save className="w-4 h-4" />
+            {saveStatus === 'saving' ? <Loader className="w-4 h-4 animate-spin" /> :
+             saveStatus === 'saved' ? <Check className="w-4 h-4" /> :
+             saveStatus === 'error' ? <AlertCircle className="w-4 h-4" /> :
+             <Save className="w-4 h-4" />}
           </button>
           <button
             onClick={loadConversations}
@@ -456,9 +484,26 @@ export function SidePanelApp() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
-            {conversations.length === 0 ? (
+            {convoLoading ? (
+              <div className="flex items-center justify-center py-8 gap-2 text-sm text-gray-500">
+                <Loader className="w-4 h-4 animate-spin" />
+                Loading...
+              </div>
+            ) : convoError ? (
+              <div className="text-center py-8 px-4">
+                <AlertCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
+                <div className="text-sm text-red-500 mb-1">Could not load conversations</div>
+                <div className="text-xs text-gray-500">{convoError}</div>
+                <button
+                  onClick={loadConversations}
+                  className="mt-3 text-xs text-verbatim-500 hover:underline"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : conversations.length === 0 ? (
               <div className="text-center text-sm text-gray-500 py-8">
-                No saved conversations
+                No saved conversations yet
               </div>
             ) : (
               conversations.map((conv) => (
@@ -468,8 +513,11 @@ export function SidePanelApp() {
                   className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
                   <div className="text-sm font-medium truncate">{conv.title}</div>
-                  <div className="text-xs text-gray-500">
-                    {conv.messages.length} messages
+                  <div className="text-xs text-gray-500 flex items-center gap-2">
+                    <span>{conv.messages.length} messages</span>
+                    {conv.created_at && (
+                      <span>{new Date(conv.created_at).toLocaleDateString()}</span>
+                    )}
                   </div>
                 </button>
               ))

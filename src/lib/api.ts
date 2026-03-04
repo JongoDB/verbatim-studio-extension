@@ -335,8 +335,8 @@ export async function streamMultiChat(
 
 // Conversations
 export async function listConversations(): Promise<Conversation[]> {
-  const data = await request<PaginatedResponse<Conversation>>('/api/conversations');
-  return data.items;
+  const data = await request<PaginatedResponse<Conversation> | Conversation[]>('/api/conversations');
+  return Array.isArray(data) ? data : (data as PaginatedResponse<Conversation>).items || [];
 }
 
 export async function saveConversation(conversation: {
