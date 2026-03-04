@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Mic, Pause, Play, Square, Upload as UploadIcon, ExternalLink } from 'lucide-react';
+import { Mic, Pause, Play, Square, Upload as UploadIcon } from 'lucide-react';
 import { AudioLevelMeter } from '@/components/AudioLevelMeter';
 import { ProjectSelect } from '@/components/ProjectSelect';
 import { formatDuration } from '@/lib/utils';
@@ -16,26 +16,12 @@ export function RecordingView({ connected }: RecordingViewProps) {
   const [hasRecording, setHasRecording] = useState(false);
   const [recordingSize, setRecordingSize] = useState(0);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt' | 'checking'>('checking');
 
   const [name, setName] = useState('');
   const [projectId, setProjectId] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-
-  // Check mic permission on mount
-  useEffect(() => {
-    navigator.permissions.query({ name: 'microphone' as PermissionName }).then((result) => {
-      setMicPermission(result.state as 'granted' | 'denied' | 'prompt');
-      result.onchange = () => {
-        setMicPermission(result.state as 'granted' | 'denied' | 'prompt');
-      };
-    }).catch(() => {
-      // permissions.query not supported for microphone in some contexts
-      setMicPermission('prompt');
-    });
-  }, []);
 
   // Listen for messages from service worker / offscreen document
   useEffect(() => {
@@ -45,9 +31,6 @@ export function RecordingView({ connected }: RecordingViewProps) {
           setIsRecording(true);
           setIsPaused(false);
           setError('');
-          break;
-        case 'RECORDING_STATE':
-          setIsPaused(message.isPaused);
           break;
         case 'AUDIO_LEVEL':
           setAudioLevel(message.level);
@@ -65,7 +48,8 @@ export function RecordingView({ connected }: RecordingViewProps) {
           setName(`Recording ${new Date().toLocaleString()}`);
           break;
         case 'MIC_PERMISSION_GRANTED':
-          setMicPermission('granted');
+          // Permission was just granted in the popup window - clear any error
+          setError('');
           break;
       }
     };
@@ -74,17 +58,14 @@ export function RecordingView({ connected }: RecordingViewProps) {
     return () => chrome.runtime?.onMessage.removeListener(listener);
   }, []);
 
-  const requestMicPermission = useCallback(() => {
-    chrome.runtime.sendMessage({ type: 'CHECK_MIC_PERMISSION' });
-  }, []);
-
   const startRecording = useCallback(() => {
     setError('');
     chrome.runtime.sendMessage({ type: 'START_RECORDING' }, (response) => {
-      if (response?.error) {
-        // If mic access fails, it likely needs permission
-        setMicPermission('prompt');
-        setError('Microphone access failed. Please grant permission and try again.');
+      if (response?.error === 'mic_permission_needed') {
+        // Service worker is opening the native permission dialog
+        setError('Please allow microphone access in the dialog that just opened, then try again.');
+      } else if (response?.error) {
+        setError(`Recording failed: ${response.error}`);
       }
     });
   }, []);
@@ -104,7 +85,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
         if (response?.error) {
           setError('Failed to upload recording');
         } else {
-          setSuccess('Recording uploaded! Transcription will begin shortly.');
+          setSuccess('Recording uploaded! Transcription will begin automatically.');
           setHasRecording(false);
           setName('');
         }
@@ -172,7 +153,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
             disabled={uploading || !name.trim()}
           >
             <UploadIcon className="w-4 h-4" />
-            {uploading ? 'Uploading...' : 'Upload to Verbatim'}
+            {uploading ? 'Uploading...' : 'Upload & Transcribe'}
           </button>
           <button className="btn-secondary text-sm" onClick={handleDiscard}>
             Discard
@@ -189,25 +170,6 @@ export function RecordingView({ connected }: RecordingViewProps) {
         <Mic className="w-4 h-4 text-verbatim-500" />
         Audio Recording
       </h2>
-
-      {/* Mic permission needed */}
-      {micPermission !== 'granted' && micPermission !== 'checking' && !isRecording && (
-        <div className="card p-4 space-y-3 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10">
-          <div className="text-sm font-medium text-amber-800 dark:text-amber-200">
-            Microphone permission required
-          </div>
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            Click below to open a page where you can grant microphone access to Verbatim Studio.
-          </p>
-          <button
-            className="btn-primary flex items-center justify-center gap-2 text-sm w-full"
-            onClick={requestMicPermission}
-          >
-            <ExternalLink className="w-4 h-4" />
-            Grant Microphone Access
-          </button>
-        </div>
-      )}
 
       {isRecording && (
         <div className="card p-4 space-y-3">
@@ -263,7 +225,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
             <Mic className="w-8 h-8" />
           </button>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
-            {micPermission === 'granted' ? 'Click to start recording' : 'Grant mic access above, then click to record'}
+            Click to start recording
           </p>
         </div>
       )}

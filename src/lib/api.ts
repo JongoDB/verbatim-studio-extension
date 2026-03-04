@@ -63,6 +63,7 @@ export async function uploadRecording(
   const formData = new FormData();
   formData.append('file', file, `${name}.webm`);
   formData.append('title', name);
+  formData.append('transcribe', 'true');
   if (projectId) formData.append('project_id', projectId);
 
   const res = await fetch(`${_baseUrl}/api/recordings/upload`, {

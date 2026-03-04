@@ -62,6 +62,17 @@ async function closeOffscreenDocument() {
   }
 }
 
+// Open a small window to trigger native mic permission dialog
+function openMicPermissionWindow() {
+  chrome.windows.create({
+    url: chrome.runtime.getURL('mic-permission.html'),
+    type: 'popup',
+    width: 420,
+    height: 220,
+    focused: true,
+  });
+}
+
 // Context menus
 function setupContextMenus() {
   chrome.contextMenus.removeAll(() => {
@@ -282,13 +293,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  // Check mic permission and open grant page if needed
-  if (message.type === 'CHECK_MIC_PERMISSION') {
-    chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
-    sendResponse({ opened: true });
-    return true;
-  }
-
   // Recording messages: popup -> service worker -> offscreen
   if (message.type === 'START_RECORDING') {
     ensureOffscreenDocument().then(() => {
@@ -297,6 +301,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         chrome.runtime.sendMessage({ target: 'offscreen', action: 'start' }, (response) => {
           if (chrome.runtime.lastError) {
             sendResponse({ error: 'Failed to communicate with recorder' });
+            return;
+          }
+          // If mic access failed, open a small window to trigger native permission dialog
+          if (response?.error) {
+            openMicPermissionWindow();
+            sendResponse({ error: 'mic_permission_needed' });
             return;
           }
           sendResponse(response);
@@ -397,6 +407,7 @@ async function uploadPendingRecording(name: string, projectId?: string) {
   const formData = new FormData();
   formData.append('file', blob, `${name}.webm`);
   formData.append('title', name);
+  formData.append('transcribe', 'true');
   if (projectId) formData.append('project_id', projectId);
 
   const res = await fetch(`${getBaseUrl()}/api/recordings/upload`, {

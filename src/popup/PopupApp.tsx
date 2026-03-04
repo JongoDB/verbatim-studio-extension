@@ -153,7 +153,7 @@ function Header({
         <img
           src={chrome.runtime.getURL('verbatim-logo.png')}
           alt="Verbatim Studio"
-          className="h-9"
+          className="h-12"
         />
       </div>
       <ConnectionBadge connected={connected} />
