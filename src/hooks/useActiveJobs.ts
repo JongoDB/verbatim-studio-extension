@@ -20,28 +20,28 @@ function isRelevantJob(job: Job): boolean {
   }
 
   const isActive = job.status === 'pending' || job.status === 'running';
-  const statusStr = job.status as string;
-  const isFailed = statusStr === 'failed' || statusStr === 'canceled' || statusStr === 'cancelled';
 
   // Active jobs: always show
   if (isActive) return true;
 
-  // Failed/canceled: show (user can clear them)
-  if (isFailed) return true;
+  // Terminal jobs: use completed_at if available, else created_at
+  const terminalTime = job.completed_at
+    ? new Date(job.completed_at).getTime()
+    : job.created_at
+      ? new Date(job.created_at).getTime()
+      : NaN;
 
   // Completed: brief 5-second flash then auto-hide
   if (job.status === 'completed') {
-    if (job.completed_at) {
-      const completed = new Date(job.completed_at).getTime();
-      if (!isNaN(completed) && completed < Date.now() - 5000) return false;
-    } else if (job.created_at) {
-      const created = new Date(job.created_at).getTime();
-      if (!isNaN(created) && created < Date.now() - 10000) return false;
-    }
+    if (!isNaN(terminalTime) && terminalTime < Date.now() - 5000) return false;
     return true;
   }
 
-  return false;
+  // Failed/canceled: show for 60 seconds, then auto-hide
+  // (user can also clear them manually before that)
+  if (!isNaN(terminalTime) && terminalTime < Date.now() - 60 * 1000) return false;
+
+  return true;
 }
 
 export function useActiveJobs() {

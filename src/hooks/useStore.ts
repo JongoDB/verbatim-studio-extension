@@ -42,18 +42,40 @@ export const useStore = create<AppState>((set) => ({
     set((state) => {
       const next = new Set(state.dismissedJobIds);
       next.add(jobId);
+      persistDismissedIds(next);
       return { dismissedJobIds: next };
     }),
   dismissJobs: (jobIds) =>
     set((state) => {
       const next = new Set(state.dismissedJobIds);
       jobIds.forEach((id) => next.add(id));
+      persistDismissedIds(next);
       return { dismissedJobIds: next };
     }),
 
   darkMode: false,
   setDarkMode: (dark) => set({ darkMode: dark }),
 }));
+
+// Persist dismissed job IDs to session storage so they survive popup close/reopen
+function persistDismissedIds(ids: Set<string>) {
+  try {
+    chrome.storage.session.set({ dismissedJobIds: [...ids] });
+  } catch {
+    // ignore
+  }
+}
+
+// Hydrate dismissed IDs from session storage on startup
+try {
+  chrome.storage.session.get('dismissedJobIds', (data) => {
+    if (data.dismissedJobIds?.length) {
+      useStore.setState({ dismissedJobIds: new Set(data.dismissedJobIds) });
+    }
+  });
+} catch {
+  // ignore — may not be in extension context
+}
 
 // Recording state
 interface RecordingState {
