@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useStore } from './useStore';
 import { listJobs } from '@/lib/api';
 import type { Job } from '@/types';
@@ -7,54 +7,45 @@ import type { Job } from '@/types';
 const RELEVANT_JOB_TYPES = ['transcri', 'asr', 'ocr', 'text_extract', 'speech', 'embed', 'index'];
 
 function isRelevantJob(job: Job): boolean {
-  const isActive = job.status === 'pending' || job.status === 'running';
-
   // Only relevant types (if type is known)
   if (job.type && job.type !== 'unknown') {
     const t = job.type.toLowerCase();
     if (!RELEVANT_JOB_TYPES.some((r) => t.includes(r))) return false;
   }
 
-  if (isActive) {
-    // Active jobs: show if created within last hour
-    if (job.created_at) {
+  // Only recent (within 1 hour)
+  if (job.created_at) {
+    const created = new Date(job.created_at).getTime();
+    if (!isNaN(created) && created < Date.now() - 60 * 60 * 1000) return false;
+  }
+
+  const isActive = job.status === 'pending' || job.status === 'running';
+  const statusStr = job.status as string;
+  const isFailed = statusStr === 'failed' || statusStr === 'canceled' || statusStr === 'cancelled';
+
+  // Active jobs: always show
+  if (isActive) return true;
+
+  // Failed/canceled: show (user can clear them)
+  if (isFailed) return true;
+
+  // Completed: brief 5-second flash then auto-hide
+  if (job.status === 'completed') {
+    if (job.completed_at) {
+      const completed = new Date(job.completed_at).getTime();
+      if (!isNaN(completed) && completed < Date.now() - 5000) return false;
+    } else if (job.created_at) {
       const created = new Date(job.created_at).getTime();
-      if (!isNaN(created) && created < Date.now() - 60 * 60 * 1000) return false;
+      if (!isNaN(created) && created < Date.now() - 10000) return false;
     }
     return true;
   }
 
-  // Terminal jobs: auto-hide after 60 seconds
-  if (job.completed_at) {
-    const completed = new Date(job.completed_at).getTime();
-    if (!isNaN(completed) && completed < Date.now() - 60 * 1000) return false;
-  } else if (job.created_at) {
-    // No completed_at — fallback to created_at, hide after 2 minutes
-    const created = new Date(job.created_at).getTime();
-    if (!isNaN(created) && created < Date.now() - 2 * 60 * 1000) return false;
-  }
-
-  return true;
+  return false;
 }
 
 export function useActiveJobs() {
-  const { connected, activeJobs, setActiveJobs, updateJob } = useStore();
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
-
-  const dismissJob = useCallback((jobId: string) => {
-    setDismissedIds((prev) => new Set(prev).add(jobId));
-  }, []);
-
-  const dismissAll = useCallback(() => {
-    const terminalIds = activeJobs
-      .filter((j) => j.status !== 'pending' && j.status !== 'running')
-      .map((j) => j.id);
-    setDismissedIds((prev) => {
-      const next = new Set(prev);
-      terminalIds.forEach((id) => next.add(id));
-      return next;
-    });
-  }, [activeJobs]);
+  const { connected, activeJobs, setActiveJobs, updateJob, dismissedJobIds } = useStore();
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -81,17 +72,14 @@ export function useActiveJobs() {
     const listener = (message: { type: string; job?: Job; resource?: string }) => {
       if (!mounted) return;
 
-      // Real-time job update from WebSocket via service worker
       if (message.type === 'JOB_UPDATE' && message.job) {
         updateJob(message.job);
       }
 
-      // Service worker tells us jobs changed — re-fetch from backend
       if (message.type === 'JOBS_CHANGED') {
         wrappedFetch();
       }
 
-      // Backend invalidated jobs — re-fetch
       if (message.type === 'INVALIDATE' && message.resource === 'jobs') {
         wrappedFetch();
       }
@@ -105,20 +93,8 @@ export function useActiveJobs() {
     };
   }, [connected, fetchJobs, updateJob]);
 
-  // Filter out dismissed jobs — but if a dismissed job becomes active again (retry), un-dismiss it
-  const visibleJobs = activeJobs.filter((j) => {
-    if (!dismissedIds.has(j.id)) return true;
-    // Un-dismiss if job became active again
-    if (j.status === 'pending' || j.status === 'running') {
-      setDismissedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(j.id);
-        return next;
-      });
-      return true;
-    }
-    return false;
-  });
+  // Filter out dismissed jobs
+  const visibleJobs = activeJobs.filter((j) => !dismissedJobIds.has(j.id));
 
-  return { jobs: visibleJobs, dismissJob, dismissAll };
+  return visibleJobs;
 }

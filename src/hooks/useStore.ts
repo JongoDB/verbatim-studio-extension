@@ -8,7 +8,11 @@ interface AppState {
   activeJobs: Job[];
   setActiveJobs: (jobs: Job[]) => void;
   updateJob: (job: Job) => void;
-  removeJob: (jobId: string) => void;
+
+  // IDs of jobs the user has dismissed from the view
+  dismissedJobIds: Set<string>;
+  dismissJob: (jobId: string) => void;
+  dismissJobs: (jobIds: string[]) => void;
 
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
@@ -32,10 +36,20 @@ export const useStore = create<AppState>((set) => ({
       }
       return { activeJobs: jobs };
     }),
-  removeJob: (jobId: string) =>
-    set((state) => ({
-      activeJobs: state.activeJobs.filter((j) => j.id !== jobId),
-    })),
+
+  dismissedJobIds: new Set(),
+  dismissJob: (jobId) =>
+    set((state) => {
+      const next = new Set(state.dismissedJobIds);
+      next.add(jobId);
+      return { dismissedJobIds: next };
+    }),
+  dismissJobs: (jobIds) =>
+    set((state) => {
+      const next = new Set(state.dismissedJobIds);
+      jobIds.forEach((id) => next.add(id));
+      return { dismissedJobIds: next };
+    }),
 
   darkMode: false,
   setDarkMode: (dark) => set({ darkMode: dark }),

@@ -378,7 +378,3 @@ export async function getJob(id: string): Promise<Job> {
 export async function cancelJob(id: string): Promise<void> {
   await request(`/api/jobs/${id}/cancel`, { method: 'POST' });
 }
-
-export async function retryJob(id: string): Promise<void> {
-  await request(`/api/jobs/${id}/retry`, { method: 'POST' });
-}

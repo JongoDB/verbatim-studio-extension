@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Briefcase, CheckCircle, Clock, AlertCircle, Loader, X, RefreshCw, Trash2 } from 'lucide-react';
+import { Briefcase, CheckCircle, Clock, AlertCircle, Loader, X } from 'lucide-react';
 import { useActiveJobs } from '@/hooks/useActiveJobs';
-import { cancelJob, retryJob } from '@/lib/api';
+import { cancelJob } from '@/lib/api';
 import { ProgressBar } from '@/components/ProgressBar';
 import { EmptyState } from '@/components/EmptyState';
 import { useStore } from '@/hooks/useStore';
 import type { Job } from '@/types';
 
 export function JobsView() {
-  const { jobs: activeJobs, dismissJob, dismissAll } = useActiveJobs();
+  const activeJobs = useActiveJobs();
   const connected = useStore((s) => s.connected);
+  const dismissJobs = useStore((s) => s.dismissJobs);
   const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set());
 
   // Clean up cancelingIds once the backend reports terminal status
@@ -36,12 +37,11 @@ export function JobsView() {
     }
   };
 
-  const handleRetry = async (jobId: string) => {
-    try {
-      await retryJob(jobId);
-    } catch {
-      // Backend may not support retry
-    }
+  const handleClearAll = () => {
+    const terminalIds = activeJobs
+      .filter((j) => j.status !== 'pending' && j.status !== 'running')
+      .map((j) => j.id);
+    dismissJobs(terminalIds);
   };
 
   const getDisplayStatus = (job: Job): string => {
@@ -98,10 +98,10 @@ export function JobsView() {
         </h2>
         {hasTerminal && (
           <button
-            onClick={dismissAll}
+            onClick={handleClearAll}
             className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
           >
-            Clear finished
+            Clear
           </button>
         )}
       </div>
@@ -110,8 +110,7 @@ export function JobsView() {
         {activeJobs.map((job) => {
           const status = getDisplayStatus(job);
           const isActive = status === 'pending' || status === 'running';
-          const isTerminal = status !== 'pending' && status !== 'running' && status !== 'canceling';
-          const canRetry = status === 'failed' || status === 'canceled' || status === 'cancelled';
+          const isTerminal = !isActive && status !== 'canceling';
 
           return (
             <div
@@ -135,24 +134,6 @@ export function JobsView() {
                       title="Cancel job"
                     >
                       <X className="w-3.5 h-3.5 text-red-500" />
-                    </button>
-                  )}
-                  {canRetry && (
-                    <button
-                      onClick={() => handleRetry(job.id)}
-                      className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                      title="Retry job"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-blue-500" />
-                    </button>
-                  )}
-                  {isTerminal && (
-                    <button
-                      onClick={() => dismissJob(job.id)}
-                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                      title="Dismiss"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-gray-400" />
                     </button>
                   )}
                   <StatusBadge status={status} />
