@@ -23,7 +23,7 @@ type View = 'home' | 'recording' | 'upload' | 'search' | 'jobs' | 'capture';
 export function PopupApp() {
   const [view, setView] = useState<View>('home');
   const connected = useConnectionStatus();
-  const activeJobs = useActiveJobs();
+  const { jobs: activeJobs } = useActiveJobs();
   useDarkMode();
 
   const [isRecordingActive, setIsRecordingActive] = useState(false);

@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useStore } from './useStore';
 import { listJobs } from '@/lib/api';
 import type { Job } from '@/types';
@@ -39,6 +39,22 @@ function isRelevantJob(job: Job): boolean {
 
 export function useActiveJobs() {
   const { connected, activeJobs, setActiveJobs, updateJob } = useStore();
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+
+  const dismissJob = useCallback((jobId: string) => {
+    setDismissedIds((prev) => new Set(prev).add(jobId));
+  }, []);
+
+  const dismissAll = useCallback(() => {
+    const terminalIds = activeJobs
+      .filter((j) => j.status !== 'pending' && j.status !== 'running')
+      .map((j) => j.id);
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      terminalIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [activeJobs]);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -89,5 +105,20 @@ export function useActiveJobs() {
     };
   }, [connected, fetchJobs, updateJob]);
 
-  return activeJobs;
+  // Filter out dismissed jobs — but if a dismissed job becomes active again (retry), un-dismiss it
+  const visibleJobs = activeJobs.filter((j) => {
+    if (!dismissedIds.has(j.id)) return true;
+    // Un-dismiss if job became active again
+    if (j.status === 'pending' || j.status === 'running') {
+      setDismissedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(j.id);
+        return next;
+      });
+      return true;
+    }
+    return false;
+  });
+
+  return { jobs: visibleJobs, dismissJob, dismissAll };
 }

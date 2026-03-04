@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Briefcase, CheckCircle, Clock, AlertCircle, Loader, X, RefreshCw, Trash2 } from 'lucide-react';
 import { useActiveJobs } from '@/hooks/useActiveJobs';
-import { cancelJob, deleteJob, retryJob } from '@/lib/api';
+import { cancelJob, retryJob } from '@/lib/api';
 import { ProgressBar } from '@/components/ProgressBar';
 import { EmptyState } from '@/components/EmptyState';
 import { useStore } from '@/hooks/useStore';
 import type { Job } from '@/types';
 
 export function JobsView() {
-  const activeJobs = useActiveJobs();
+  const { jobs: activeJobs, dismissJob, dismissAll } = useActiveJobs();
   const connected = useStore((s) => s.connected);
-  const removeJob = useStore((s) => s.removeJob);
   const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set());
 
   // Clean up cancelingIds once the backend reports terminal status
@@ -37,15 +36,6 @@ export function JobsView() {
     }
   };
 
-  const handleDelete = async (jobId: string) => {
-    removeJob(jobId);
-    try {
-      await deleteJob(jobId);
-    } catch {
-      // Next poll will reconcile
-    }
-  };
-
   const handleRetry = async (jobId: string) => {
     try {
       await retryJob(jobId);
@@ -65,6 +55,10 @@ export function JobsView() {
     const s = getDisplayStatus(j);
     return s === 'pending' || s === 'running';
   }).length;
+
+  const hasTerminal = activeJobs.some(
+    (j) => j.status !== 'pending' && j.status !== 'running',
+  );
 
   if (!connected) {
     return (
@@ -92,15 +86,25 @@ export function JobsView() {
 
   return (
     <div className="p-4 space-y-4">
-      <h2 className="text-sm font-semibold flex items-center gap-2">
-        <Briefcase className="w-4 h-4 text-verbatim-500" />
-        Background Jobs
-        {activeCount > 0 && (
-          <span className="text-xs font-normal text-gray-500">
-            ({activeCount} active)
-          </span>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <Briefcase className="w-4 h-4 text-verbatim-500" />
+          Background Jobs
+          {activeCount > 0 && (
+            <span className="text-xs font-normal text-gray-500">
+              ({activeCount} active)
+            </span>
+          )}
+        </h2>
+        {hasTerminal && (
+          <button
+            onClick={dismissAll}
+            className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+          >
+            Clear finished
+          </button>
         )}
-      </h2>
+      </div>
 
       <div className="space-y-2">
         {activeJobs.map((job) => {
@@ -144,11 +148,11 @@ export function JobsView() {
                   )}
                   {isTerminal && (
                     <button
-                      onClick={() => handleDelete(job.id)}
+                      onClick={() => dismissJob(job.id)}
                       className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                      title="Delete job"
+                      title="Dismiss"
                     >
-                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                      <Trash2 className="w-3.5 h-3.5 text-gray-400" />
                     </button>
                   )}
                   <StatusBadge status={status} />
