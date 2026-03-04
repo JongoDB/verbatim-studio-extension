@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { useStore } from './useStore';
+import { useStore, persistCancelingJobIds } from './useStore';
 import { listJobs } from '@/lib/api';
 import type { Job } from '@/types';
 
@@ -38,7 +38,6 @@ function isRelevantJob(job: Job): boolean {
   }
 
   // Failed/canceled: show for 60 seconds, then auto-hide
-  // (user can also clear them manually before that)
   if (!isNaN(terminalTime) && terminalTime < Date.now() - 60 * 1000) return false;
 
   return true;
@@ -47,7 +46,7 @@ function isRelevantJob(job: Job): boolean {
 export function useActiveJobs() {
   const {
     connected, activeJobs, setActiveJobs, updateJob,
-    dismissedJobIds,
+    dismissedJobIds, hydrated,
   } = useStore();
 
   const fetchJobs = useCallback(async () => {
@@ -56,7 +55,7 @@ export function useActiveJobs() {
       const relevant = allJobs.filter(isRelevantJob);
       setActiveJobs(relevant);
 
-      // Clean up cancelingJobIds for jobs that have actually reached terminal status
+      // Clean up cancelingJobIds for jobs that reached terminal status
       const { cancelingJobIds: current } = useStore.getState();
       if (current.size > 0) {
         let changed = false;
@@ -68,7 +67,10 @@ export function useActiveJobs() {
             changed = true;
           }
         }
-        if (changed) useStore.setState({ cancelingJobIds: next });
+        if (changed) {
+          useStore.setState({ cancelingJobIds: next });
+          persistCancelingJobIds(next);
+        }
       }
     } catch {
       // ignore — backend may be down
@@ -76,7 +78,7 @@ export function useActiveJobs() {
   }, [setActiveJobs]);
 
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || !hydrated) return;
 
     let mounted = true;
 
@@ -109,10 +111,11 @@ export function useActiveJobs() {
       clearInterval(pollTimer);
       chrome.runtime?.onMessage.removeListener(listener);
     };
-  }, [connected, fetchJobs, updateJob]);
+  }, [connected, hydrated, fetchJobs, updateJob]);
+
+  // Don't show anything until persisted state is loaded
+  if (!hydrated) return [];
 
   // Filter out dismissed jobs
-  const visibleJobs = activeJobs.filter((j) => !dismissedJobIds.has(j.id));
-
-  return visibleJobs;
+  return activeJobs.filter((j) => !dismissedJobIds.has(j.id));
 }

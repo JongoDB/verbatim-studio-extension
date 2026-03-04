@@ -1,8 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { Search, FileText, Mic, StickyNote, MessageSquare, ExternalLink } from 'lucide-react';
-import { search, getBaseUrl } from '@/lib/api';
+import { search } from '@/lib/api';
 import { EmptyState } from '@/components/EmptyState';
-import { formatRelativeTime, truncate } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils';
 import type { SearchResult } from '@/types';
 
 interface SearchViewProps {
@@ -42,7 +42,6 @@ export function SearchView({ connected }: SearchViewProps) {
   }
 
   const openInApp = (result: SearchResult) => {
-    const base = getBaseUrl();
     let path = '';
 
     if (result.recording_id) {
@@ -56,7 +55,13 @@ export function SearchView({ connected }: SearchViewProps) {
     }
 
     if (path) {
-      chrome.tabs.create({ url: `${base}${path}` });
+      chrome.windows.create({
+        url: `http://127.0.0.1:5173${path}`,
+        type: 'popup',
+        width: 900,
+        height: 700,
+        focused: true,
+      });
     }
   };
 
@@ -124,13 +129,16 @@ export function SearchView({ connected }: SearchViewProps) {
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-sm font-medium truncate">
-                    {result.title || result.recording_title || result.document_title || result.conversation_title || 'Untitled'}
+                    <HighlightText
+                      text={result.title || result.recording_title || result.document_title || result.conversation_title || 'Untitled'}
+                      query={query}
+                    />
                   </div>
                   <ExternalLink className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </div>
                 {result.text && (
                   <div className="text-xs text-gray-500 mt-0.5">
-                    {truncate(result.text, 150)}
+                    <HighlightText text={truncateAround(result.text, query, 150)} query={query} />
                   </div>
                 )}
                 <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
@@ -154,6 +162,61 @@ export function SearchView({ connected }: SearchViewProps) {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Truncate text centered around the first match of the query */
+function truncateAround(text: string, query: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+
+  const terms = query.trim().toLowerCase().split(/\s+/);
+  const lower = text.toLowerCase();
+  let firstMatch = -1;
+
+  for (const term of terms) {
+    const idx = lower.indexOf(term);
+    if (idx !== -1) {
+      firstMatch = idx;
+      break;
+    }
+  }
+
+  if (firstMatch === -1) {
+    return text.slice(0, maxLen) + '...';
+  }
+
+  const half = Math.floor(maxLen / 2);
+  let start = Math.max(0, firstMatch - half);
+  let end = Math.min(text.length, start + maxLen);
+  if (end - start < maxLen) start = Math.max(0, end - maxLen);
+
+  let result = text.slice(start, end);
+  if (start > 0) result = '...' + result;
+  if (end < text.length) result = result + '...';
+  return result;
+}
+
+/** Render text with query terms highlighted */
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>;
+
+  const terms = query.trim().split(/\s+/).filter(Boolean);
+  const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
+  const parts = text.split(pattern);
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        pattern.test(part) ? (
+          <mark key={i} className="bg-yellow-200 dark:bg-yellow-800/60 text-inherit rounded-sm px-0.5">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
   );
 }
 

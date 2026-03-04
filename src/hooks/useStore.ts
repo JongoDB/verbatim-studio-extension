@@ -18,6 +18,9 @@ interface AppState {
   cancelingJobIds: Set<string>;
   markCanceling: (jobId: string) => void;
 
+  // Whether persisted state has been loaded from session storage
+  hydrated: boolean;
+
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
 }
@@ -46,14 +49,14 @@ export const useStore = create<AppState>((set) => ({
     set((state) => {
       const next = new Set(state.dismissedJobIds);
       next.add(jobId);
-      persistDismissedIds(next);
+      persistSessionState(next, state.cancelingJobIds);
       return { dismissedJobIds: next };
     }),
   dismissJobs: (jobIds) =>
     set((state) => {
       const next = new Set(state.dismissedJobIds);
       jobIds.forEach((id) => next.add(id));
-      persistDismissedIds(next);
+      persistSessionState(next, state.cancelingJobIds);
       return { dismissedJobIds: next };
     }),
 
@@ -62,31 +65,55 @@ export const useStore = create<AppState>((set) => ({
     set((state) => {
       const next = new Set(state.cancelingJobIds);
       next.add(jobId);
+      persistSessionState(state.dismissedJobIds, next);
       return { cancelingJobIds: next };
     }),
+
+  hydrated: false,
 
   darkMode: false,
   setDarkMode: (dark) => set({ darkMode: dark }),
 }));
 
-// Persist dismissed job IDs to session storage so they survive popup close/reopen
-function persistDismissedIds(ids: Set<string>) {
+// Persist both dismissed and canceling IDs to session storage
+function persistSessionState(dismissed: Set<string>, canceling: Set<string>) {
   try {
-    chrome.storage.session.set({ dismissedJobIds: [...ids] });
+    chrome.storage.session.set({
+      dismissedJobIds: [...dismissed],
+      cancelingJobIds: [...canceling],
+    });
   } catch {
     // ignore
   }
 }
 
-// Hydrate dismissed IDs from session storage on startup
+// Also persist when cancelingJobIds are cleaned up from useActiveJobs
+export function persistCancelingJobIds(ids: Set<string>) {
+  try {
+    chrome.storage.session.set({ cancelingJobIds: [...ids] });
+  } catch {
+    // ignore
+  }
+}
+
+// Hydrate persisted state from session storage on startup
 try {
-  chrome.storage.session.get('dismissedJobIds', (data) => {
-    if (data.dismissedJobIds?.length) {
-      useStore.setState({ dismissedJobIds: new Set(data.dismissedJobIds) });
-    }
+  chrome.storage.session.get(['dismissedJobIds', 'cancelingJobIds'], (data) => {
+    const dismissed = data.dismissedJobIds?.length
+      ? new Set<string>(data.dismissedJobIds)
+      : new Set<string>();
+    const canceling = data.cancelingJobIds?.length
+      ? new Set<string>(data.cancelingJobIds)
+      : new Set<string>();
+    useStore.setState({
+      dismissedJobIds: dismissed,
+      cancelingJobIds: canceling,
+      hydrated: true,
+    });
   });
 } catch {
-  // ignore — may not be in extension context
+  // Not in extension context — mark as hydrated immediately
+  useStore.setState({ hydrated: true });
 }
 
 // Recording state
