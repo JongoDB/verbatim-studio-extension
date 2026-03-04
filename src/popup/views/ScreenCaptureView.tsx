@@ -81,8 +81,8 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
                     },
                     () => {
                       if (chrome.runtime.lastError) {
-                        setStatus('Cannot capture on this page (browser or protected page)');
-                        setCapturing(false);
+                        // Protected page — fall back to full-page upload
+                        fallbackFullUpload(dataUrl);
                         return;
                       }
                       // Retry after injection
@@ -92,8 +92,7 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
                           { type: 'SCREEN_CAPTURE_RESULT', dataUrl },
                           (retryResponse) => {
                             if (chrome.runtime.lastError) {
-                              setStatus('Failed to start region selector');
-                              setCapturing(false);
+                              fallbackFullUpload(dataUrl);
                               return;
                             }
                             window.close();
@@ -112,6 +111,19 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
         },
       );
     });
+  };
+
+  const fallbackFullUpload = async (dataUrl: string) => {
+    try {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      await uploadDocument(blob, `screenshot-${Date.now()}.png`);
+      setStatus('Region select not available on this page — full screenshot uploaded instead');
+    } catch {
+      setStatus('Failed to upload screenshot');
+    } finally {
+      setCapturing(false);
+    }
   };
 
   if (!connected) {
@@ -170,7 +182,11 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
       {status && (
         <div
           className={`text-center text-sm ${
-            status.includes('Failed') ? 'text-red-500' : 'text-green-600'
+            status.includes('Failed')
+              ? 'text-red-500'
+              : status.includes('instead')
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-green-600'
           }`}
         >
           {status}

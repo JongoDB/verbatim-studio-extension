@@ -71,7 +71,16 @@ export async function uploadRecording(
     body: formData,
   });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-  return res.json();
+  const recording = await res.json();
+
+  // Trigger transcription automatically after upload
+  if (recording?.id) {
+    fetch(`${_baseUrl}/api/recordings/${recording.id}/transcribe`, {
+      method: 'POST',
+    }).catch(() => {});
+  }
+
+  return recording;
 }
 
 // Documents
@@ -246,10 +255,19 @@ export async function search(query: string): Promise<SearchResponse> {
   return request(`/api/search/global?q=${encodeURIComponent(query)}`);
 }
 
-// Jobs
+// Transcription
+export async function triggerTranscription(recordingId: string): Promise<void> {
+  await fetch(`${_baseUrl}/api/recordings/${recordingId}/transcribe`, {
+    method: 'POST',
+  });
+}
+
+// Jobs — response may be paginated { items: [...] } or a plain array
 export async function listJobs(): Promise<Job[]> {
-  const data = await request<PaginatedResponse<Job>>('/api/jobs');
-  return data.items;
+  const res = await fetch(`${_baseUrl}/api/jobs`);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : (data.items || []);
 }
 
 export async function getJob(id: string): Promise<Job> {

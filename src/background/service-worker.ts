@@ -415,7 +415,16 @@ async function uploadPendingRecording(name: string, projectId?: string) {
     body: formData,
   });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-  return res.json();
+  const recording = await res.json();
+
+  // Trigger transcription automatically after upload
+  if (recording?.id) {
+    fetch(`${getBaseUrl()}/api/recordings/${recording.id}/transcribe`, {
+      method: 'POST',
+    }).catch(() => {});
+  }
+
+  return recording;
 }
 
 async function uploadScreenshot(dataUrl: string) {
