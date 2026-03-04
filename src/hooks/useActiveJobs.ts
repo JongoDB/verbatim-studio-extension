@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useStore } from './useStore';
-import { listJobs } from '@/lib/api';
+import { getJob } from '@/lib/api';
 import type { Job } from '@/types';
 
 export function useActiveJobs() {
@@ -12,44 +12,83 @@ export function useActiveJobs() {
     let mounted = true;
     const removalTimers: ReturnType<typeof setTimeout>[] = [];
 
-    async function fetchJobs() {
+    async function fetchTrackedJobs() {
       try {
-        const jobs = await listJobs();
-        if (!mounted) return;
-        // Only show active jobs created within the last 30 minutes
-        // to avoid displaying stale stuck jobs from the backend
-        const cutoff = Date.now() - 30 * 60 * 1000;
-        setActiveJobs(
-          jobs.filter((j) => {
-            if (j.status !== 'pending' && j.status !== 'running') return false;
-            if (j.created_at) {
-              const created = new Date(j.created_at).getTime();
-              if (created < cutoff) return false;
+        const data = await chrome.storage.session.get('trackedJobs');
+        const tracked: Record<string, { type: string; label: string; completedAt?: number }> =
+          data.trackedJobs || {};
+        const jobIds = Object.keys(tracked);
+
+        if (jobIds.length === 0) {
+          if (mounted) setActiveJobs([]);
+          return;
+        }
+
+        const now = Date.now();
+        const jobs: Job[] = [];
+        let dirty = false;
+
+        for (const id of jobIds) {
+          const meta = tracked[id];
+
+          // Remove jobs that completed more than 60 seconds ago
+          if (meta.completedAt && now - meta.completedAt > 60000) {
+            delete tracked[id];
+            dirty = true;
+            continue;
+          }
+
+          try {
+            const job = await getJob(id);
+            jobs.push(job);
+
+            // Mark completed/failed jobs with a timestamp for later cleanup
+            if (
+              (job.status === 'completed' || job.status === 'failed') &&
+              !meta.completedAt
+            ) {
+              tracked[id] = { ...meta, completedAt: now };
+              dirty = true;
             }
-            return true;
-          }),
-        );
+          } catch {
+            // Job not found or API error — remove from tracking
+            delete tracked[id];
+            dirty = true;
+          }
+        }
+
+        if (!mounted) return;
+
+        if (dirty) {
+          await chrome.storage.session.set({ trackedJobs: tracked });
+        }
+
+        setActiveJobs(jobs);
       } catch {
         // ignore
       }
     }
 
-    fetchJobs();
-    // Refresh periodically
-    const pollTimer = setInterval(fetchJobs, 10000);
+    fetchTrackedJobs();
+    const pollTimer = setInterval(fetchTrackedJobs, 5000);
 
     const listener = (message: { type: string; job?: Job }) => {
       if (message.type === 'JOB_UPDATE' && message.job && mounted) {
-        updateJob(message.job);
+        // Only show updates for tracked jobs
+        chrome.storage.session.get('trackedJobs', (data) => {
+          const tracked = data.trackedJobs || {};
+          if (tracked[message.job!.id]) {
+            updateJob(message.job!);
 
-        // Auto-remove completed/failed jobs after 15s
-        if (message.job.status === 'completed' || message.job.status === 'failed') {
-          const jobId = message.job.id;
-          const timer = setTimeout(() => {
-            if (mounted) removeJob(jobId);
-          }, 15000);
-          removalTimers.push(timer);
-        }
+            if (message.job!.status === 'completed' || message.job!.status === 'failed') {
+              const jobId = message.job!.id;
+              const timer = setTimeout(() => {
+                if (mounted) removeJob(jobId);
+              }, 30000);
+              removalTimers.push(timer);
+            }
+          }
+        });
       }
     };
     chrome.runtime?.onMessage.addListener(listener);

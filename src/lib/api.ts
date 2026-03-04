@@ -73,11 +73,9 @@ export async function uploadRecording(
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   const recording = await res.json();
 
-  // Trigger transcription automatically after upload
+  // Trigger transcription automatically after upload and track the job
   if (recording?.id) {
-    fetch(`${_baseUrl}/api/recordings/${recording.id}/transcribe`, {
-      method: 'POST',
-    }).catch(() => {});
+    await triggerTranscription(recording.id, name);
   }
 
   return recording;
@@ -106,10 +104,21 @@ export async function uploadDocument(
   return res.json();
 }
 
-export async function triggerOcr(documentId: string): Promise<void> {
-  await fetch(`${_baseUrl}/api/documents/${documentId}/ocr`, {
-    method: 'POST',
-  });
+export async function triggerOcr(documentId: string, label?: string): Promise<void> {
+  try {
+    const res = await fetch(`${_baseUrl}/api/documents/${documentId}/ocr`, {
+      method: 'POST',
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const jobId = data?.job_id || data?.id || data?.task_id;
+      if (jobId) {
+        await trackJobInStorage(jobId, 'ocr', label || 'Document');
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
 // Projects
@@ -255,21 +264,37 @@ export async function search(query: string): Promise<SearchResponse> {
   return request(`/api/search/global?q=${encodeURIComponent(query)}`);
 }
 
+// Job tracking — stores job IDs initiated by the extension in session storage
+async function trackJobInStorage(jobId: string, type: string, label: string) {
+  try {
+    const data = await chrome.storage.session.get('trackedJobs');
+    const tracked = data.trackedJobs || {};
+    tracked[jobId] = { type, label };
+    await chrome.storage.session.set({ trackedJobs: tracked });
+  } catch {
+    // ignore — may fail outside extension context
+  }
+}
+
 // Transcription
-export async function triggerTranscription(recordingId: string): Promise<void> {
-  await fetch(`${_baseUrl}/api/recordings/${recordingId}/transcribe`, {
-    method: 'POST',
-  });
+export async function triggerTranscription(recordingId: string, label?: string): Promise<void> {
+  try {
+    const res = await fetch(`${_baseUrl}/api/recordings/${recordingId}/transcribe`, {
+      method: 'POST',
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const jobId = data?.job_id || data?.id || data?.task_id;
+      if (jobId) {
+        await trackJobInStorage(jobId, 'transcription', label || 'Recording');
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
-// Jobs — response may be paginated { items: [...] } or a plain array
-export async function listJobs(): Promise<Job[]> {
-  const res = await fetch(`${_baseUrl}/api/jobs`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  const data = await res.json();
-  return Array.isArray(data) ? data : (data.items || []);
-}
-
+// Jobs
 export async function getJob(id: string): Promise<Job> {
   return request(`/api/jobs/${id}`);
 }

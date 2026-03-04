@@ -60,7 +60,7 @@ export function JobsView() {
               <div className="flex items-center gap-2">
                 <JobStatusIcon status={job.status} />
                 <span className="text-sm font-medium capitalize">
-                  {(job.type || 'processing').replace(/_/g, ' ')}
+                  {getJobLabel(job)}
                 </span>
               </div>
               <StatusBadge status={job.status} />
@@ -83,6 +83,14 @@ export function JobsView() {
       </div>
     </div>
   );
+}
+
+function getJobLabel(job: { type?: string }): string {
+  const type = (job.type || '').toLowerCase();
+  if (type.includes('transcri') || type.includes('asr')) return 'Transcription';
+  if (type.includes('ocr') || type.includes('text_extract')) return 'OCR Processing';
+  if (type.includes('embed') || type.includes('index')) return 'Indexing';
+  return (job.type || 'Processing').replace(/_/g, ' ');
 }
 
 function JobStatusIcon({ status }: { status: string }) {

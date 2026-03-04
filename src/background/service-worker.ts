@@ -13,6 +13,18 @@ let backendPort = 52780;
 // Pending recording data URL (from offscreen document, awaiting user upload)
 let pendingRecordingDataUrl: string | null = null;
 
+// Job types that the extension cares about (for WebSocket auto-tracking)
+const TRACKABLE_JOB_TYPES = ['transcri', 'asr', 'ocr', 'text_extract', 'speech'];
+
+async function trackJob(jobId: string, type: string, label: string) {
+  try {
+    const data = await chrome.storage.session.get('trackedJobs');
+    const tracked = data.trackedJobs || {};
+    tracked[jobId] = { type, label };
+    await chrome.storage.session.set({ trackedJobs: tracked });
+  } catch {}
+}
+
 const MAX_RECONNECT_DELAY = 30000;
 
 // Initialize
@@ -230,6 +242,22 @@ function handleWSMessage(msg: WSMessage) {
       type?: string;
     };
 
+    const jobType = (payload.type || 'unknown').toLowerCase();
+
+    // Auto-track relevant job types from WebSocket
+    if (TRACKABLE_JOB_TYPES.some(t => jobType.includes(t))) {
+      chrome.storage.session.get('trackedJobs', (data) => {
+        const tracked = data.trackedJobs || {};
+        if (!tracked[payload.job_id]) {
+          tracked[payload.job_id] = {
+            type: payload.type || 'processing',
+            label: payload.message || jobType.replace(/_/g, ' '),
+          };
+          chrome.storage.session.set({ trackedJobs: tracked });
+        }
+      });
+    }
+
     const job: Job = {
       id: payload.job_id,
       type: payload.type || 'unknown',
@@ -242,6 +270,15 @@ function handleWSMessage(msg: WSMessage) {
     chrome.runtime.sendMessage({ type: 'JOB_UPDATE', job }).catch(() => {});
 
     if (payload.status === 'completed') {
+      // Clean up from tracking
+      chrome.storage.session.get('trackedJobs', (data) => {
+        const tracked = data.trackedJobs || {};
+        if (tracked[payload.job_id]) {
+          tracked[payload.job_id].completedAt = Date.now();
+          chrome.storage.session.set({ trackedJobs: tracked });
+        }
+      });
+
       chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icons/icon-128.png',
@@ -265,11 +302,15 @@ function handleWSMessage(msg: WSMessage) {
 
 async function updateJobBadge() {
   try {
-    const res = await fetch(`${getBaseUrl()}/api/jobs`);
-    if (!res.ok) return;
-    const data = await res.json();
-    const jobs: Job[] = data.items || data;
-    const activeCount = jobs.filter((j) => j.status === 'pending' || j.status === 'running').length;
+    // Don't overwrite the REC badge during active recording
+    const sessionData = await chrome.storage.session.get('recordingActive');
+    if (sessionData.recordingActive) return;
+
+    const data = await chrome.storage.session.get('trackedJobs');
+    const tracked = data.trackedJobs || {};
+    const activeCount = Object.values(tracked).filter(
+      (j: any) => !j.completedAt,
+    ).length;
     chrome.action.setBadgeText({ text: activeCount > 0 ? String(activeCount) : '' });
     chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' });
   } catch {
@@ -466,11 +507,20 @@ async function uploadPendingRecording(name: string, projectId?: string) {
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   const recording = await res.json();
 
-  // Trigger transcription automatically after upload
+  // Trigger transcription automatically after upload and track the job
   if (recording?.id) {
-    fetch(`${getBaseUrl()}/api/recordings/${recording.id}/transcribe`, {
-      method: 'POST',
-    }).catch(() => {});
+    try {
+      const transcribeRes = await fetch(`${getBaseUrl()}/api/recordings/${recording.id}/transcribe`, {
+        method: 'POST',
+      });
+      if (transcribeRes.ok) {
+        const data = await transcribeRes.json().catch(() => null);
+        const jobId = data?.job_id || data?.id || data?.task_id;
+        if (jobId) {
+          await trackJob(jobId, 'transcription', name);
+        }
+      }
+    } catch {}
   }
 
   return recording;
@@ -518,11 +568,20 @@ async function uploadCaptureFromPreview(dataUrl: string, runOcr: boolean) {
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   const doc = await res.json();
 
-  // Trigger OCR if requested
+  // Trigger OCR if requested and track the job
   if (runOcr && doc?.id) {
-    fetch(`${getBaseUrl()}/api/documents/${doc.id}/ocr`, {
-      method: 'POST',
-    }).catch(() => {});
+    try {
+      const ocrRes = await fetch(`${getBaseUrl()}/api/documents/${doc.id}/ocr`, {
+        method: 'POST',
+      });
+      if (ocrRes.ok) {
+        const data = await ocrRes.json().catch(() => null);
+        const jobId = data?.job_id || data?.id || data?.task_id;
+        if (jobId) {
+          await trackJob(jobId, 'ocr', 'Screenshot');
+        }
+      }
+    } catch {}
   }
 
   // Clear pending capture
