@@ -73,30 +73,80 @@ export function SidePanelApp() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const [contextTooltip, setContextTooltip] = useState<string | null>(null);
+  const contextTooltipTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  const showContextTooltip = useCallback((msg: string) => {
+    clearTimeout(contextTooltipTimer.current);
+    setContextTooltip(msg);
+    contextTooltipTimer.current = setTimeout(() => setContextTooltip(null), 4000);
+  }, []);
+
   const attachPageContext = useCallback(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        setContext((prev) => ({
-          ...prev,
-          page_url: tabs[0].url,
-        }));
+      const tab = tabs[0];
+      if (!tab?.id || !tab.url) {
+        showContextTooltip('No active page found.');
+        return;
+      }
 
-        // Try to get selected text
+      // Restricted pages can't run content scripts
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:')) {
+        setContext((prev) => ({ ...prev, page_url: tab.url }));
+        showContextTooltip('Page URL attached. This page doesn\'t support text selection capture.');
+        return;
+      }
+
+      setContext((prev) => ({ ...prev, page_url: tab.url }));
+
+      // Try to get selected text from content script
+      const requestSelection = () => {
         chrome.tabs.sendMessage(
-          tabs[0].id!,
+          tab.id!,
           { type: 'GET_SELECTION' },
           (response) => {
+            if (chrome.runtime.lastError) {
+              // Content script not loaded — still have the URL
+              showContextTooltip('Page URL attached. Tip: highlight text on the page first, then click here to include it as context.');
+              return;
+            }
             if (response?.selectedText) {
-              setContext((prev) => ({
-                ...prev,
-                selected_text: response.selectedText,
-              }));
+              setContext((prev) => ({ ...prev, selected_text: response.selectedText }));
+              showContextTooltip('Page URL and selected text attached.');
+            } else {
+              showContextTooltip('Page URL attached. Tip: highlight text on the page first, then click here to include it as context.');
             }
           },
         );
-      }
+      };
+
+      // First attempt — if content script is already loaded
+      chrome.tabs.sendMessage(tab.id!, { type: 'GET_SELECTION' }, (response) => {
+        if (chrome.runtime.lastError) {
+          // Content script not loaded — try to inject it
+          chrome.scripting.executeScript(
+            { target: { tabId: tab.id! }, files: ['content-script.js'] },
+            () => {
+              if (chrome.runtime.lastError) {
+                // Can't inject (protected page) — just use URL
+                showContextTooltip('Page URL attached. Text selection isn\'t available on this page.');
+                return;
+              }
+              // Script injected — retry after brief delay
+              setTimeout(requestSelection, 100);
+            },
+          );
+          return;
+        }
+        if (response?.selectedText) {
+          setContext((prev) => ({ ...prev, selected_text: response.selectedText }));
+          showContextTooltip('Page URL and selected text attached.');
+        } else {
+          showContextTooltip('Page URL attached. Tip: highlight text on the page first, then click here to include it as context.');
+        }
+      });
     });
-  }, []);
+  }, [showContextTooltip]);
 
   const sendMessage = async () => {
     if (!input.trim() || streaming || !connected) return;
@@ -463,14 +513,19 @@ export function SidePanelApp() {
       {/* Input */}
       <div className="px-4 py-3 border-t flex-shrink-0">
         <div className="flex items-end gap-2">
-          <div className="flex gap-1">
+          <div className="flex gap-1 relative">
             <button
               onClick={attachPageContext}
               className="btn-ghost p-1.5 rounded-lg text-gray-400 hover:text-verbatim-500"
-              title="Attach page context"
+              title="Capture current page URL & selected text as context for Max"
             >
               <Globe className="w-4 h-4" />
             </button>
+            {contextTooltip && (
+              <div className="absolute bottom-full left-0 mb-2 w-56 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 shadow-lg z-50 animate-in fade-in">
+                {contextTooltip}
+              </div>
+            )}
             <button
               onClick={() => setShowContextPicker(!showContextPicker)}
               className="btn-ghost p-1.5 rounded-lg text-gray-400 hover:text-verbatim-500"

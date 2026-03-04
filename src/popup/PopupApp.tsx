@@ -159,7 +159,8 @@ export function PopupApp() {
         </div>
       )}
 
-      <div className="border-t px-4 py-2 flex justify-end">
+      <div className="border-t px-4 py-2 flex items-center justify-between">
+        <span className="text-[10px] text-gray-400 select-none">v1.0.0</span>
         <button
           onClick={openOptions}
           className="btn-ghost p-1.5 rounded-lg"
