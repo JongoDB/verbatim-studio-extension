@@ -1,40 +1,33 @@
 import { useEffect } from 'react';
 import { useStore } from './useStore';
-import { listJobs } from '@/lib/api';
 import type { Job } from '@/types';
 
+// Only track jobs received via WebSocket during this session.
+// Completed/failed jobs are auto-removed after 10 seconds.
 export function useActiveJobs() {
-  const { connected, activeJobs, setActiveJobs, updateJob } = useStore();
+  const { connected, activeJobs, updateJob, setActiveJobs, removeJob } = useStore();
 
   useEffect(() => {
     if (!connected) return;
 
     let mounted = true;
+    const removalTimers: ReturnType<typeof setTimeout>[] = [];
 
-    async function fetchJobs() {
-      try {
-        const jobs = await listJobs();
-        if (mounted) {
-          const oneHourAgo = Date.now() - 60 * 60 * 1000;
-          setActiveJobs(
-            jobs.filter((j) => {
-              if (j.status !== 'pending' && j.status !== 'running') return false;
-              // Filter out stale jobs older than 1 hour
-              if (j.created_at && new Date(j.created_at).getTime() < oneHourAgo) return false;
-              return true;
-            }),
-          );
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    fetchJobs();
+    // Clear any stale jobs when reconnecting
+    setActiveJobs([]);
 
     const listener = (message: { type: string; job?: Job }) => {
       if (message.type === 'JOB_UPDATE' && message.job && mounted) {
         updateJob(message.job);
+
+        // Auto-remove completed/failed jobs after 10s
+        if (message.job.status === 'completed' || message.job.status === 'failed') {
+          const jobId = message.job.id;
+          const timer = setTimeout(() => {
+            if (mounted) removeJob(jobId);
+          }, 10000);
+          removalTimers.push(timer);
+        }
       }
     };
     chrome.runtime?.onMessage.addListener(listener);
@@ -42,8 +35,9 @@ export function useActiveJobs() {
     return () => {
       mounted = false;
       chrome.runtime?.onMessage.removeListener(listener);
+      removalTimers.forEach(clearTimeout);
     };
-  }, [connected, setActiveJobs, updateJob]);
+  }, [connected, setActiveJobs, updateJob, removeJob]);
 
   return activeJobs;
 }

@@ -8,6 +8,7 @@ interface AppState {
   activeJobs: Job[];
   setActiveJobs: (jobs: Job[]) => void;
   updateJob: (job: Job) => void;
+  removeJob: (jobId: string) => void;
 
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
@@ -29,9 +30,12 @@ export const useStore = create<AppState>((set) => ({
       } else {
         jobs = [...state.activeJobs, job];
       }
-      // Remove completed/failed jobs from the active list
-      return { activeJobs: jobs.filter((j) => j.status === 'pending' || j.status === 'running') };
+      return { activeJobs: jobs };
     }),
+  removeJob: (jobId: string) =>
+    set((state) => ({
+      activeJobs: state.activeJobs.filter((j) => j.id !== jobId),
+    })),
 
   darkMode: false,
   setDarkMode: (dark) => set({ darkMode: dark }),

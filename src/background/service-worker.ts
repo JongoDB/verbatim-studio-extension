@@ -282,12 +282,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  // Check mic permission and open grant page if needed
+  if (message.type === 'CHECK_MIC_PERMISSION') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+    sendResponse({ opened: true });
+    return true;
+  }
+
   // Recording messages: popup -> service worker -> offscreen
   if (message.type === 'START_RECORDING') {
     ensureOffscreenDocument().then(() => {
-      chrome.runtime.sendMessage({ target: 'offscreen', action: 'start' }, (response) => {
-        sendResponse(response);
-      });
+      // Small delay to ensure offscreen script has registered its listener
+      setTimeout(() => {
+        chrome.runtime.sendMessage({ target: 'offscreen', action: 'start' }, (response) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ error: 'Failed to communicate with recorder' });
+            return;
+          }
+          sendResponse(response);
+        });
+      }, 150);
     }).catch((err) => {
       sendResponse({ error: err.message });
     });

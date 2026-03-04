@@ -3,12 +3,14 @@ import { Briefcase, CheckCircle, Clock, AlertCircle, Loader } from 'lucide-react
 import { useActiveJobs } from '@/hooks/useActiveJobs';
 import { ProgressBar } from '@/components/ProgressBar';
 import { EmptyState } from '@/components/EmptyState';
-import { formatRelativeTime } from '@/lib/utils';
 import { useStore } from '@/hooks/useStore';
 
 export function JobsView() {
   const activeJobs = useActiveJobs();
   const connected = useStore((s) => s.connected);
+
+  const runningJobs = activeJobs.filter((j) => j.status === 'pending' || j.status === 'running');
+  const recentJobs = activeJobs.filter((j) => j.status === 'completed' || j.status === 'failed');
 
   if (!connected) {
     return (
@@ -28,7 +30,7 @@ export function JobsView() {
         <EmptyState
           icon={<CheckCircle className="w-8 h-8" />}
           title="No active jobs"
-          description="All tasks are complete"
+          description="Jobs will appear here when you upload files or start transcriptions"
         />
       </div>
     );
@@ -39,20 +41,29 @@ export function JobsView() {
       <h2 className="text-sm font-semibold flex items-center gap-2">
         <Briefcase className="w-4 h-4 text-verbatim-500" />
         Background Jobs
-        <span className="text-xs font-normal text-gray-500">({activeJobs.length} active)</span>
+        {runningJobs.length > 0 && (
+          <span className="text-xs font-normal text-gray-500">
+            ({runningJobs.length} active)
+          </span>
+        )}
       </h2>
 
       <div className="space-y-2">
         {activeJobs.map((job) => (
-          <div key={job.id} className="card p-3 space-y-2">
+          <div
+            key={job.id}
+            className={`card p-3 space-y-2 transition-opacity ${
+              job.status === 'completed' || job.status === 'failed' ? 'opacity-60' : ''
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <JobStatusIcon status={job.status} />
-                <span className="text-sm font-medium capitalize">{job.type}</span>
+                <span className="text-sm font-medium capitalize">
+                  {job.type.replace(/_/g, ' ')}
+                </span>
               </div>
-              <span className="text-xs text-gray-400">
-                {formatRelativeTime(job.created_at)}
-              </span>
+              <StatusBadge status={job.status} />
             </div>
 
             {job.message && (
@@ -85,4 +96,19 @@ function JobStatusIcon({ status }: { status: string }) {
     default:
       return <Clock className="w-4 h-4 text-gray-400" />;
   }
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    pending: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+    running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  };
+
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${styles[status] || styles.pending}`}>
+      {status}
+    </span>
+  );
 }

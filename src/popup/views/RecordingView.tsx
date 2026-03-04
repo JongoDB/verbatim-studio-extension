@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Mic, Pause, Play, Square, Upload as UploadIcon } from 'lucide-react';
+import { Mic, Pause, Play, Square, Upload as UploadIcon, ExternalLink } from 'lucide-react';
 import { AudioLevelMeter } from '@/components/AudioLevelMeter';
 import { ProjectSelect } from '@/components/ProjectSelect';
 import { formatDuration } from '@/lib/utils';
@@ -16,12 +16,26 @@ export function RecordingView({ connected }: RecordingViewProps) {
   const [hasRecording, setHasRecording] = useState(false);
   const [recordingSize, setRecordingSize] = useState(0);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt' | 'checking'>('checking');
 
   const [name, setName] = useState('');
   const [projectId, setProjectId] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Check mic permission on mount
+  useEffect(() => {
+    navigator.permissions.query({ name: 'microphone' as PermissionName }).then((result) => {
+      setMicPermission(result.state as 'granted' | 'denied' | 'prompt');
+      result.onchange = () => {
+        setMicPermission(result.state as 'granted' | 'denied' | 'prompt');
+      };
+    }).catch(() => {
+      // permissions.query not supported for microphone in some contexts
+      setMicPermission('prompt');
+    });
+  }, []);
 
   // Listen for messages from service worker / offscreen document
   useEffect(() => {
@@ -40,6 +54,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
           break;
         case 'RECORDING_DURATION':
           setDuration(message.duration);
+          setIsPaused(message.isPaused || false);
           break;
         case 'RECORDING_COMPLETE':
           setIsRecording(false);
@@ -49,6 +64,9 @@ export function RecordingView({ connected }: RecordingViewProps) {
           setRecordingSize(message.size);
           setName(`Recording ${new Date().toLocaleString()}`);
           break;
+        case 'MIC_PERMISSION_GRANTED':
+          setMicPermission('granted');
+          break;
       }
     };
 
@@ -56,11 +74,17 @@ export function RecordingView({ connected }: RecordingViewProps) {
     return () => chrome.runtime?.onMessage.removeListener(listener);
   }, []);
 
+  const requestMicPermission = useCallback(() => {
+    chrome.runtime.sendMessage({ type: 'CHECK_MIC_PERMISSION' });
+  }, []);
+
   const startRecording = useCallback(() => {
     setError('');
     chrome.runtime.sendMessage({ type: 'START_RECORDING' }, (response) => {
       if (response?.error) {
-        setError(`Microphone access denied. Please allow microphone access in Chrome settings.`);
+        // If mic access fails, it likely needs permission
+        setMicPermission('prompt');
+        setError('Microphone access failed. Please grant permission and try again.');
       }
     });
   }, []);
@@ -166,6 +190,25 @@ export function RecordingView({ connected }: RecordingViewProps) {
         Audio Recording
       </h2>
 
+      {/* Mic permission needed */}
+      {micPermission !== 'granted' && micPermission !== 'checking' && !isRecording && (
+        <div className="card p-4 space-y-3 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10">
+          <div className="text-sm font-medium text-amber-800 dark:text-amber-200">
+            Microphone permission required
+          </div>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Click below to open a page where you can grant microphone access to Verbatim Studio.
+          </p>
+          <button
+            className="btn-primary flex items-center justify-center gap-2 text-sm w-full"
+            onClick={requestMicPermission}
+          >
+            <ExternalLink className="w-4 h-4" />
+            Grant Microphone Access
+          </button>
+        </div>
+      )}
+
       {isRecording && (
         <div className="card p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -220,7 +263,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
             <Mic className="w-8 h-8" />
           </button>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
-            Click to start recording
+            {micPermission === 'granted' ? 'Click to start recording' : 'Grant mic access above, then click to record'}
           </p>
         </div>
       )}

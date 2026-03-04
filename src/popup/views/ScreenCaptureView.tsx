@@ -66,20 +66,49 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
             return;
           }
 
-          // Send screenshot to content script for region selection
-          chrome.tabs.sendMessage(
-            tab.id!,
-            { type: 'SCREEN_CAPTURE_RESULT', dataUrl },
-            (response) => {
-              if (chrome.runtime.lastError) {
-                setStatus('Content script not available on this page');
-                setCapturing(false);
-                return;
-              }
-              // Close popup so the overlay is fully visible
-              window.close();
-            },
-          );
+          // Try sending to content script; inject it first if not present
+          const sendToContentScript = () => {
+            chrome.tabs.sendMessage(
+              tab.id!,
+              { type: 'SCREEN_CAPTURE_RESULT', dataUrl },
+              (response) => {
+                if (chrome.runtime.lastError) {
+                  // Content script not injected yet - inject programmatically
+                  chrome.scripting.executeScript(
+                    {
+                      target: { tabId: tab.id! },
+                      files: ['content-script.js'],
+                    },
+                    () => {
+                      if (chrome.runtime.lastError) {
+                        setStatus('Cannot capture on this page (browser or protected page)');
+                        setCapturing(false);
+                        return;
+                      }
+                      // Retry after injection
+                      setTimeout(() => {
+                        chrome.tabs.sendMessage(
+                          tab.id!,
+                          { type: 'SCREEN_CAPTURE_RESULT', dataUrl },
+                          (retryResponse) => {
+                            if (chrome.runtime.lastError) {
+                              setStatus('Failed to start region selector');
+                              setCapturing(false);
+                              return;
+                            }
+                            window.close();
+                          },
+                        );
+                      }, 100);
+                    },
+                  );
+                  return;
+                }
+                window.close();
+              },
+            );
+          };
+          sendToContentScript();
         },
       );
     });
