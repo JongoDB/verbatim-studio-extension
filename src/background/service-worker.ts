@@ -13,31 +13,8 @@ let backendPort = 52780;
 // Pending recording data URL (from offscreen document, awaiting user upload)
 let pendingRecordingDataUrl: string | null = null;
 
-// Job types that the extension cares about (for WebSocket auto-tracking)
-const TRACKABLE_JOB_TYPES = ['transcri', 'asr', 'ocr', 'text_extract', 'speech'];
-
-async function trackJob(jobId: string, type: string, label: string) {
-  try {
-    const data = await chrome.storage.session.get('trackedJobs');
-    const tracked = data.trackedJobs || {};
-    tracked[jobId] = { type, label, trackedAt: Date.now() };
-    await chrome.storage.session.set({ trackedJobs: tracked });
-  } catch {}
-}
-
-// Remove a tracked job and notify the popup
-async function untrackJob(jobId: string) {
-  try {
-    const data = await chrome.storage.session.get('trackedJobs');
-    const tracked = data.trackedJobs || {};
-    if (tracked[jobId]) {
-      delete tracked[jobId];
-      await chrome.storage.session.set({ trackedJobs: tracked });
-      updateJobBadge();
-      chrome.runtime.sendMessage({ type: 'TRACKED_JOBS_CHANGED' }).catch(() => {});
-    }
-  } catch {}
-}
+// Job types the extension considers relevant
+const RELEVANT_JOB_TYPES = ['transcri', 'asr', 'ocr', 'text_extract', 'speech', 'embed', 'index'];
 
 const MAX_RECONNECT_DELAY = 30000;
 
@@ -256,22 +233,6 @@ function handleWSMessage(msg: WSMessage) {
       type?: string;
     };
 
-    const jobType = (payload.type || 'unknown').toLowerCase();
-
-    // Auto-track relevant job types from WebSocket
-    if (TRACKABLE_JOB_TYPES.some(t => jobType.includes(t))) {
-      chrome.storage.session.get('trackedJobs', (data) => {
-        const tracked = data.trackedJobs || {};
-        if (!tracked[payload.job_id]) {
-          tracked[payload.job_id] = {
-            type: payload.type || 'processing',
-            label: payload.message || jobType.replace(/_/g, ' '),
-          };
-          chrome.storage.session.set({ trackedJobs: tracked });
-        }
-      });
-    }
-
     const job: Job = {
       id: payload.job_id,
       type: payload.type || 'unknown',
@@ -281,41 +242,26 @@ function handleWSMessage(msg: WSMessage) {
       created_at: new Date().toISOString(),
     };
 
+    // Forward to popup/sidepanel for real-time updates
     chrome.runtime.sendMessage({ type: 'JOB_UPDATE', job }).catch(() => {});
 
-    // Any non-active status is terminal (completed, failed, canceled, cancelled, etc.)
-    const isTerminal = payload.status !== 'pending' && payload.status !== 'running';
-    if (isTerminal) {
-      // Mark for cleanup in tracking
-      chrome.storage.session.get('trackedJobs', (data) => {
-        const tracked = data.trackedJobs || {};
-        if (tracked[payload.job_id]) {
-          tracked[payload.job_id].completedAt = Date.now();
-          chrome.storage.session.set({ trackedJobs: tracked });
-        }
+    if (payload.status === 'completed') {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon-128.png',
+        title: 'Verbatim Studio',
+        message: payload.message || `Job completed: ${payload.type || payload.job_id}`,
       });
-
-      if (payload.status === 'completed') {
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon-128.png',
-          title: 'Verbatim Studio',
-          message: payload.message || `Job completed: ${payload.type || payload.job_id}`,
-        });
-      }
     }
 
     updateJobBadge();
   }
 
-  // Handle job cancellation/deletion messages (various formats backends might use)
+  // Any job lifecycle event — tell popup to re-fetch
   if (msg.type === 'job_canceled' || msg.type === 'job_cancelled' ||
       msg.type === 'job_deleted' || msg.type === 'job_failed') {
-    const payload = msg.payload as { job_id?: string; id?: string };
-    const jobId = payload.job_id || payload.id;
-    if (jobId) {
-      untrackJob(jobId);
-    }
+    chrome.runtime.sendMessage({ type: 'JOBS_CHANGED' }).catch(() => {});
+    updateJobBadge();
   }
 
   if (msg.type === 'invalidate') {
@@ -326,87 +272,42 @@ function handleWSMessage(msg: WSMessage) {
       id: payload.id,
     }).catch(() => {});
 
-    // When jobs or recordings are invalidated, immediately re-check tracked jobs
+    // When jobs or recordings change, tell popup to re-fetch
     if (payload.resource === 'jobs' || payload.resource === 'recordings') {
-      refreshTrackedJobs();
-    }
-  }
-}
-
-// Re-check tracked jobs against the backend
-async function refreshTrackedJobs() {
-  try {
-    const data = await chrome.storage.session.get('trackedJobs');
-    const tracked: Record<string, any> = data.trackedJobs || {};
-    const jobIds = Object.keys(tracked);
-    if (jobIds.length === 0) return;
-
-    const now = Date.now();
-    let dirty = false;
-
-    for (const id of jobIds) {
-      // Already terminal — clean up after 60s
-      if (tracked[id].completedAt) {
-        if (now - tracked[id].completedAt > 60000) {
-          delete tracked[id];
-          dirty = true;
-        }
-        continue;
-      }
-
-      // Staleness check: if tracked for over 10 minutes with no completion, remove it
-      if (tracked[id].trackedAt && now - tracked[id].trackedAt > 10 * 60 * 1000) {
-        delete tracked[id];
-        dirty = true;
-        continue;
-      }
-
-      try {
-        const res = await fetch(`${getBaseUrl()}/api/jobs/${id}`);
-        if (!res.ok) {
-          // Job deleted or not found — remove from tracking
-          delete tracked[id];
-          dirty = true;
-          continue;
-        }
-        const job = await res.json();
-        const isTerminal = job.status !== 'pending' && job.status !== 'running';
-        if (isTerminal) {
-          tracked[id].completedAt = now;
-          dirty = true;
-          // Forward the terminal status to the popup
-          chrome.runtime.sendMessage({
-            type: 'JOB_UPDATE',
-            job: {
-              id,
-              type: job.type || tracked[id].type || 'processing',
-              status: job.status,
-              progress: job.progress,
-              message: job.message,
-              created_at: job.created_at || new Date().toISOString(),
-            },
-          }).catch(() => {});
-        }
-      } catch {
-        // Network error — leave tracked for now
-      }
-    }
-
-    if (dirty) {
-      await chrome.storage.session.set({ trackedJobs: tracked });
+      chrome.runtime.sendMessage({ type: 'JOBS_CHANGED' }).catch(() => {});
       updateJobBadge();
-      chrome.runtime.sendMessage({ type: 'TRACKED_JOBS_CHANGED' }).catch(() => {});
     }
-  } catch {
-    // ignore
   }
 }
 
-// Periodically refresh tracked jobs even without WebSocket triggers
-// This catches cases where the backend deletes/cancels jobs without notifying
-setInterval(() => {
-  if (connected) refreshTrackedJobs();
-}, 15000);
+// Fetch relevant active jobs from backend for badge
+async function fetchRelevantJobs(): Promise<Job[]> {
+  try {
+    const res = await fetch(`${getBaseUrl()}/api/jobs`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const allJobs: Job[] = Array.isArray(data) ? data : (data.items || []);
+
+    const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
+    return allJobs.filter((j) => {
+      // Only active jobs
+      if (j.status !== 'pending' && j.status !== 'running') return false;
+      // Only recent jobs
+      if (j.created_at) {
+        const created = new Date(j.created_at).getTime();
+        if (!isNaN(created) && created < cutoff) return false;
+      }
+      // Only relevant types (if type is known)
+      if (j.type && j.type !== 'unknown') {
+        const t = j.type.toLowerCase();
+        if (!RELEVANT_JOB_TYPES.some(r => t.includes(r))) return false;
+      }
+      return true;
+    });
+  } catch {
+    return [];
+  }
+}
 
 async function updateJobBadge() {
   try {
@@ -414,12 +315,8 @@ async function updateJobBadge() {
     const sessionData = await chrome.storage.session.get('recordingActive');
     if (sessionData.recordingActive) return;
 
-    const data = await chrome.storage.session.get('trackedJobs');
-    const tracked = data.trackedJobs || {};
-    const activeCount = Object.values(tracked).filter(
-      (j: any) => !j.completedAt,
-    ).length;
-    chrome.action.setBadgeText({ text: activeCount > 0 ? String(activeCount) : '' });
+    const jobs = await fetchRelevantJobs();
+    chrome.action.setBadgeText({ text: jobs.length > 0 ? String(jobs.length) : '' });
     chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' });
   } catch {
     // ignore
@@ -615,20 +512,11 @@ async function uploadPendingRecording(name: string, projectId?: string) {
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   const recording = await res.json();
 
-  // Trigger transcription automatically after upload and track the job
+  // Trigger transcription automatically after upload
   if (recording?.id) {
-    try {
-      const transcribeRes = await fetch(`${getBaseUrl()}/api/recordings/${recording.id}/transcribe`, {
-        method: 'POST',
-      });
-      if (transcribeRes.ok) {
-        const data = await transcribeRes.json().catch(() => null);
-        const jobId = data?.job_id || data?.id || data?.task_id;
-        if (jobId) {
-          await trackJob(jobId, 'transcription', name);
-        }
-      }
-    } catch {}
+    fetch(`${getBaseUrl()}/api/recordings/${recording.id}/transcribe`, {
+      method: 'POST',
+    }).catch(() => {});
   }
 
   return recording;
@@ -676,20 +564,11 @@ async function uploadCaptureFromPreview(dataUrl: string, runOcr: boolean) {
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   const doc = await res.json();
 
-  // Trigger OCR if requested and track the job
+  // Trigger OCR if requested
   if (runOcr && doc?.id) {
-    try {
-      const ocrRes = await fetch(`${getBaseUrl()}/api/documents/${doc.id}/ocr`, {
-        method: 'POST',
-      });
-      if (ocrRes.ok) {
-        const data = await ocrRes.json().catch(() => null);
-        const jobId = data?.job_id || data?.id || data?.task_id;
-        if (jobId) {
-          await trackJob(jobId, 'ocr', 'Screenshot');
-        }
-      }
-    } catch {}
+    fetch(`${getBaseUrl()}/api/documents/${doc.id}/ocr`, {
+      method: 'POST',
+    }).catch(() => {});
   }
 
   // Clear pending capture

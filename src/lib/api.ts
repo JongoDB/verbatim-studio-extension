@@ -75,7 +75,7 @@ export async function uploadRecording(
 
   // Trigger transcription automatically after upload and track the job
   if (recording?.id) {
-    await triggerTranscription(recording.id, name);
+    await triggerTranscription(recording.id);
   }
 
   return recording;
@@ -194,18 +194,11 @@ export async function getRecordingTranscript(id: string): Promise<string> {
   return '';
 }
 
-export async function triggerOcr(documentId: string, label?: string): Promise<void> {
+export async function triggerOcr(documentId: string): Promise<void> {
   try {
-    const res = await fetch(`${_baseUrl}/api/documents/${documentId}/ocr`, {
+    await fetch(`${_baseUrl}/api/documents/${documentId}/ocr`, {
       method: 'POST',
     });
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      const jobId = data?.job_id || data?.id || data?.task_id;
-      if (jobId) {
-        await trackJobInStorage(jobId, 'ocr', label || 'Document');
-      }
-    }
   } catch {
     // ignore
   }
@@ -361,37 +354,23 @@ export async function search(query: string): Promise<SearchResponse> {
   return request(`/api/search/global?q=${encodeURIComponent(query)}`);
 }
 
-// Job tracking — stores job IDs initiated by the extension in session storage
-async function trackJobInStorage(jobId: string, type: string, label: string) {
-  try {
-    const data = await chrome.storage.session.get('trackedJobs');
-    const tracked = data.trackedJobs || {};
-    tracked[jobId] = { type, label, trackedAt: Date.now() };
-    await chrome.storage.session.set({ trackedJobs: tracked });
-  } catch {
-    // ignore — may fail outside extension context
-  }
-}
-
 // Transcription
-export async function triggerTranscription(recordingId: string, label?: string): Promise<void> {
+export async function triggerTranscription(recordingId: string): Promise<void> {
   try {
-    const res = await fetch(`${_baseUrl}/api/recordings/${recordingId}/transcribe`, {
+    await fetch(`${_baseUrl}/api/recordings/${recordingId}/transcribe`, {
       method: 'POST',
     });
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      const jobId = data?.job_id || data?.id || data?.task_id;
-      if (jobId) {
-        await trackJobInStorage(jobId, 'transcription', label || 'Recording');
-      }
-    }
   } catch {
     // ignore
   }
 }
 
-// Jobs
+// Jobs — fetch all jobs from backend (source of truth for both extension and Electron app)
+export async function listJobs(): Promise<Job[]> {
+  const data = await request<PaginatedResponse<Job> | Job[]>('/api/jobs');
+  return Array.isArray(data) ? data : (data as PaginatedResponse<Job>).items;
+}
+
 export async function getJob(id: string): Promise<Job> {
   return request(`/api/jobs/${id}`);
 }

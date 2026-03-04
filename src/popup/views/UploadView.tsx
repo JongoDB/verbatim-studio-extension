@@ -88,7 +88,7 @@ export function UploadView({ connected }: UploadViewProps) {
         } else {
           const doc = await uploadDocument(file, file.name, projectId || undefined);
           if (runOcr && file.type.startsWith('image/') && doc?.id) {
-            triggerOcr(doc.id, file.name).catch(() => {});
+            triggerOcr(doc.id).catch(() => {});
           }
         }
 
