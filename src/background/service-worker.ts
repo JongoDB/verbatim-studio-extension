@@ -293,6 +293,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  // Query recording state (popup asks on open)
+  if (message.type === 'GET_RECORDING_STATE') {
+    chrome.storage.session.get(['recordingActive', 'recordingPaused', 'pendingRecordingReady'], (data) => {
+      sendResponse({
+        isRecording: !!data.recordingActive,
+        isPaused: !!data.recordingPaused,
+        hasRecording: !!data.pendingRecordingReady,
+        duration: 0,
+        size: data.pendingRecordingReady?.size || 0,
+      });
+    });
+    return true;
+  }
+
   // Recording messages: popup -> service worker -> offscreen
   if (message.type === 'START_RECORDING') {
     ensureOffscreenDocument().then(() => {
@@ -320,11 +334,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === 'PAUSE_RECORDING') {
     chrome.runtime.sendMessage({ target: 'offscreen', action: 'pause' });
+    chrome.storage.session.set({ recordingPaused: true });
     return false;
   }
 
   if (message.type === 'RESUME_RECORDING') {
     chrome.runtime.sendMessage({ target: 'offscreen', action: 'resume' });
+    chrome.storage.session.set({ recordingPaused: false });
     return false;
   }
 
@@ -333,9 +349,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
+  // Offscreen -> service worker: recording started
+  if (message.type === 'RECORDING_STARTED') {
+    chrome.storage.session.set({ recordingActive: true, recordingPaused: false });
+    chrome.action.setBadgeText({ text: 'REC' });
+    chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+    return false;
+  }
+
   // Offscreen -> service worker: recording complete, store data URL
   if (message.type === 'RECORDING_COMPLETE') {
     pendingRecordingDataUrl = message.dataUrl;
+    chrome.storage.session.set({
+      recordingActive: false,
+      recordingPaused: false,
+      pendingRecordingReady: { duration: message.duration, size: message.size },
+    });
+    // Restore normal badge
+    updateJobBadge();
     // Forward to popup
     chrome.runtime.sendMessage({
       type: 'RECORDING_COMPLETE',
@@ -349,7 +380,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Audio level and duration updates: offscreen -> forward to popup
   if (message.type === 'AUDIO_LEVEL' || message.type === 'RECORDING_DURATION' ||
-      message.type === 'RECORDING_STARTED' || message.type === 'RECORDING_STATE') {
+      message.type === 'RECORDING_STATE') {
     // Already broadcast to all listeners
     return false;
   }
@@ -361,7 +392,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
     uploadPendingRecording(message.name, message.projectId)
-      .then((result) => sendResponse({ success: true, recording: result }))
+      .then((result) => {
+        chrome.storage.session.remove('pendingRecordingReady');
+        sendResponse({ success: true, recording: result });
+      })
       .catch((err) => sendResponse({ error: err.message }));
     return true;
   }

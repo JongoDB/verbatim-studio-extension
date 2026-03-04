@@ -23,6 +23,22 @@ export function RecordingView({ connected }: RecordingViewProps) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Restore recording state from session storage on mount
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, (state) => {
+      if (chrome.runtime.lastError || !state) return;
+      if (state.isRecording) {
+        setIsRecording(true);
+        setIsPaused(state.isPaused);
+      } else if (state.hasRecording) {
+        setHasRecording(true);
+        setRecordingDuration(state.duration || 0);
+        setRecordingSize(state.size || 0);
+        setName(`Recording ${new Date().toLocaleString()}`);
+      }
+    });
+  }, []);
+
   // Listen for messages from service worker / offscreen document
   useEffect(() => {
     const listener = (message: any) => {
@@ -48,7 +64,6 @@ export function RecordingView({ connected }: RecordingViewProps) {
           setName(`Recording ${new Date().toLocaleString()}`);
           break;
         case 'MIC_PERMISSION_GRANTED':
-          // Permission was just granted in the popup window - clear any error
           setError('');
           break;
       }
@@ -62,7 +77,6 @@ export function RecordingView({ connected }: RecordingViewProps) {
     setError('');
     chrome.runtime.sendMessage({ type: 'START_RECORDING' }, (response) => {
       if (response?.error === 'mic_permission_needed') {
-        // Service worker is opening the native permission dialog
         setError('Please allow microphone access in the dialog that just opened, then try again.');
       } else if (response?.error) {
         setError(`Recording failed: ${response.error}`);
@@ -98,6 +112,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
     setName('');
     setSuccess('');
     setError('');
+    chrome.storage.session.remove('pendingRecordingReady');
   };
 
   if (!connected) {

@@ -26,13 +26,33 @@ export function PopupApp() {
   const activeJobs = useActiveJobs();
   useDarkMode();
 
-  // Auto-open capture view if there's a pending screenshot from region select
+  const [isRecordingActive, setIsRecordingActive] = useState(false);
+
+  // Auto-open capture view or recording view based on session state
   useEffect(() => {
-    chrome.storage.session.get('pendingCapture', (data) => {
-      if (data.pendingCapture) {
+    chrome.storage.session.get(['pendingCapture', 'recordingActive', 'pendingRecordingReady'], (data) => {
+      if (data.recordingActive) {
+        setView('recording');
+        setIsRecordingActive(true);
+      } else if (data.pendingRecordingReady) {
+        setView('recording');
+      } else if (data.pendingCapture) {
         setView('capture');
       }
     });
+  }, []);
+
+  // Listen for recording state changes while popup is open
+  useEffect(() => {
+    const listener = (message: any) => {
+      if (message.type === 'RECORDING_STARTED') {
+        setIsRecordingActive(true);
+      } else if (message.type === 'RECORDING_COMPLETE') {
+        setIsRecordingActive(false);
+      }
+    };
+    chrome.runtime?.onMessage.addListener(listener);
+    return () => chrome.runtime?.onMessage.removeListener(listener);
   }, []);
 
   const openSidePanel = () => {
@@ -83,6 +103,19 @@ export function PopupApp() {
         </div>
       ) : (
         <div className="flex-1 p-4">
+          {isRecordingActive && (
+            <button
+              onClick={() => setView('recording')}
+              className="w-full mb-3 flex items-center gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              <div className="flex-1 text-left">
+                <div className="text-sm font-medium text-red-700 dark:text-red-400">Recording in progress</div>
+                <div className="text-xs text-red-500 dark:text-red-500">Tap to view</div>
+              </div>
+              <Mic className="w-4 h-4 text-red-500" />
+            </button>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <FeatureCard
               icon={<Mic className="w-5 h-5" />}

@@ -16,9 +16,18 @@ export function useActiveJobs() {
       try {
         const jobs = await listJobs();
         if (!mounted) return;
-        // Show all active jobs (pending or running)
+        // Only show active jobs created within the last 30 minutes
+        // to avoid displaying stale stuck jobs from the backend
+        const cutoff = Date.now() - 30 * 60 * 1000;
         setActiveJobs(
-          jobs.filter((j) => j.status === 'pending' || j.status === 'running'),
+          jobs.filter((j) => {
+            if (j.status !== 'pending' && j.status !== 'running') return false;
+            if (j.created_at) {
+              const created = new Date(j.created_at).getTime();
+              if (created < cutoff) return false;
+            }
+            return true;
+          }),
         );
       } catch {
         // ignore
