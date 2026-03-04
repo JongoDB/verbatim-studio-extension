@@ -343,22 +343,21 @@ export function SidePanelApp() {
   const [convoError, setConvoError] = useState<string | null>(null);
 
   const loadConversations = async () => {
+    setShowConversations(true);
     setConvoLoading(true);
     setConvoError(null);
     try {
       const convs = await listConversations();
       setConversations(convs);
-      setShowConversations(true);
     } catch (err: any) {
       setConvoError(err?.message || 'Failed to load conversations');
-      setShowConversations(true);
     } finally {
       setConvoLoading(false);
     }
   };
 
   const loadConversation = (conv: Conversation) => {
-    setMessages(conv.messages);
+    setMessages(conv.messages || []);
     setShowConversations(false);
   };
 
@@ -506,15 +505,19 @@ export function SidePanelApp() {
                 No saved conversations yet
               </div>
             ) : (
-              conversations.map((conv) => (
+              conversations.map((conv, idx) => (
                 <button
-                  key={conv.id}
+                  key={conv.id || idx}
                   onClick={() => loadConversation(conv)}
                   className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
-                  <div className="text-sm font-medium truncate">{conv.title}</div>
+                  <div className="text-sm font-medium truncate">
+                    {conv.title || conv.messages?.[0]?.content?.slice(0, 50) || 'Untitled'}
+                  </div>
                   <div className="text-xs text-gray-500 flex items-center gap-2">
-                    <span>{conv.messages.length} messages</span>
+                    {conv.messages?.length != null && (
+                      <span>{conv.messages.length} messages</span>
+                    )}
                     {conv.created_at && (
                       <span>{new Date(conv.created_at).toLocaleDateString()}</span>
                     )}

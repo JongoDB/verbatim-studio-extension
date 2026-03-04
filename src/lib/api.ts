@@ -335,8 +335,14 @@ export async function streamMultiChat(
 
 // Conversations
 export async function listConversations(): Promise<Conversation[]> {
-  const data = await request<PaginatedResponse<Conversation> | Conversation[]>('/api/conversations');
-  return Array.isArray(data) ? data : (data as PaginatedResponse<Conversation>).items || [];
+  const data = await request<any>('/api/conversations');
+  // Handle all common response shapes
+  if (Array.isArray(data)) return data;
+  if (data?.items && Array.isArray(data.items)) return data.items;
+  if (data?.conversations && Array.isArray(data.conversations)) return data.conversations;
+  if (data?.results && Array.isArray(data.results)) return data.results;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  return [];
 }
 
 export async function saveConversation(conversation: {
