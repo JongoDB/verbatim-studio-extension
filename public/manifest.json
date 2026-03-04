@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Verbatim Studio",
+  "version": "1.0.0",
+  "description": "Interact with your local Verbatim Studio desktop app directly from your browser. Record audio, capture screens, chat with AI, upload documents, and search — all from one extension.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "Verbatim Studio"
+  },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "options_page": "src/options/index.html",
+  "permissions": [
+    "activeTab",
+    "sidePanel",
+    "contextMenus",
+    "notifications",
+    "storage",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:52780/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
