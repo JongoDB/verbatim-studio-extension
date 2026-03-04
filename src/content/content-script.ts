@@ -3,6 +3,20 @@
 
 let overlayActive = false;
 
+// Track the last non-empty text selection so it survives focus changes
+// (clicking the side panel Globe button shifts focus away from the page,
+// which can cause window.getSelection() to return empty)
+let lastSelection = '';
+document.addEventListener('selectionchange', () => {
+  const text = window.getSelection()?.toString() || '';
+  if (text) lastSelection = text;
+});
+
+function getCurrentSelection(): string {
+  const live = window.getSelection()?.toString() || '';
+  return live || lastSelection;
+}
+
 // Listen for messages from the service worker / popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'SCREEN_CAPTURE_RESULT') {
@@ -12,13 +26,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'GET_SELECTION') {
-    const selectedText = window.getSelection()?.toString() || '';
-    sendResponse({ selectedText });
+    sendResponse({ selectedText: getCurrentSelection() });
     return true;
   }
 
   if (message.type === 'GET_PAGE_CONTEXT') {
-    const selectedText = window.getSelection()?.toString() || '';
+    const selectedText = getCurrentSelection();
     const pageTitle = document.title || '';
     const metaDesc =
       (document.querySelector('meta[name="description"]') as HTMLMetaElement)?.content || '';
