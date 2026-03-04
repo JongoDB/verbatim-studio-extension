@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { Search, FileText, Mic, StickyNote, MessageSquare } from 'lucide-react';
-import { search } from '@/lib/api';
+import { Search, FileText, Mic, StickyNote, MessageSquare, ExternalLink } from 'lucide-react';
+import { search, getBaseUrl } from '@/lib/api';
 import { EmptyState } from '@/components/EmptyState';
 import { formatRelativeTime, truncate } from '@/lib/utils';
 import type { SearchResult } from '@/types';
@@ -40,6 +40,25 @@ export function SearchView({ connected }: SearchViewProps) {
       </div>
     );
   }
+
+  const openInApp = (result: SearchResult) => {
+    const base = getBaseUrl();
+    let path = '';
+
+    if (result.recording_id) {
+      path = `/recordings/${result.recording_id}`;
+    } else if (result.document_id) {
+      path = `/documents/${result.document_id}`;
+    } else if (result.conversation_id) {
+      path = `/conversations/${result.conversation_id}`;
+    } else if (result.note_id) {
+      path = `/notes/${result.note_id}`;
+    }
+
+    if (path) {
+      chrome.tabs.create({ url: `${base}${path}` });
+    }
+  };
 
   // Group results by type
   const grouped = results.reduce(
@@ -100,10 +119,14 @@ export function SearchView({ connected }: SearchViewProps) {
             {items.map((result) => (
               <div
                 key={result.id}
-                className="card p-3 hover:shadow-sm transition-shadow cursor-pointer"
+                className="card p-3 hover:shadow-sm transition-shadow cursor-pointer group"
+                onClick={() => openInApp(result)}
               >
-                <div className="text-sm font-medium">
-                  {result.title || result.recording_title || result.document_title || result.conversation_title || 'Untitled'}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-medium truncate">
+                    {result.title || result.recording_title || result.document_title || result.conversation_title || 'Untitled'}
+                  </div>
+                  <ExternalLink className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </div>
                 {result.text && (
                   <div className="text-xs text-gray-500 mt-0.5">

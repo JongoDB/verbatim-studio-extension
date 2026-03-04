@@ -47,7 +47,7 @@ function isRelevantJob(job: Job): boolean {
 export function useActiveJobs() {
   const {
     connected, activeJobs, setActiveJobs, updateJob,
-    dismissedJobIds, cancelingJobIds,
+    dismissedJobIds,
   } = useStore();
 
   const fetchJobs = useCallback(async () => {
@@ -111,15 +111,8 @@ export function useActiveJobs() {
     };
   }, [connected, fetchJobs, updateJob]);
 
-  // Filter out dismissed jobs, apply optimistic canceling status
-  const visibleJobs = activeJobs
-    .filter((j) => !dismissedJobIds.has(j.id))
-    .map((j) => {
-      if (cancelingJobIds.has(j.id) && (j.status === 'pending' || j.status === 'running')) {
-        return { ...j, status: 'canceled' as Job['status'] };
-      }
-      return j;
-    });
+  // Filter out dismissed jobs
+  const visibleJobs = activeJobs.filter((j) => !dismissedJobIds.has(j.id));
 
   return visibleJobs;
 }

@@ -5,12 +5,14 @@ import { cancelJob } from '@/lib/api';
 import { ProgressBar } from '@/components/ProgressBar';
 import { EmptyState } from '@/components/EmptyState';
 import { useStore } from '@/hooks/useStore';
+import type { Job } from '@/types';
 
 export function JobsView() {
   const activeJobs = useActiveJobs();
   const connected = useStore((s) => s.connected);
   const dismissJobs = useStore((s) => s.dismissJobs);
   const markCanceling = useStore((s) => s.markCanceling);
+  const cancelingJobIds = useStore((s) => s.cancelingJobIds);
 
   const handleCancel = async (jobId: string) => {
     markCanceling(jobId);
@@ -21,20 +23,33 @@ export function JobsView() {
     }
   };
 
+  // Display status: show "canceling" for jobs we've requested cancel on
+  const getDisplayStatus = (job: Job): string => {
+    if (cancelingJobIds.has(job.id) && (job.status === 'pending' || job.status === 'running')) {
+      return 'canceling';
+    }
+    return job.status;
+  };
+
   const handleClearAll = () => {
     const terminalIds = activeJobs
-      .filter((j) => j.status !== 'pending' && j.status !== 'running')
+      .filter((j) => {
+        const s = getDisplayStatus(j);
+        return s !== 'pending' && s !== 'running';
+      })
       .map((j) => j.id);
     dismissJobs(terminalIds);
   };
 
-  const activeCount = activeJobs.filter(
-    (j) => j.status === 'pending' || j.status === 'running',
-  ).length;
+  const activeCount = activeJobs.filter((j) => {
+    const s = getDisplayStatus(j);
+    return s === 'pending' || s === 'running';
+  }).length;
 
-  const hasTerminal = activeJobs.some(
-    (j) => j.status !== 'pending' && j.status !== 'running',
-  );
+  const hasTerminal = activeJobs.some((j) => {
+    const s = getDisplayStatus(j);
+    return s !== 'pending' && s !== 'running';
+  });
 
   if (!connected) {
     return (
@@ -84,9 +99,10 @@ export function JobsView() {
 
       <div className="space-y-2">
         {activeJobs.map((job) => {
-          const status = job.status as string;
+          const status = getDisplayStatus(job);
           const isActive = status === 'pending' || status === 'running';
-          const isTerminal = !isActive;
+          const isCanceling = status === 'canceling';
+          const isTerminal = !isActive && !isCanceling;
 
           return (
             <div
@@ -120,7 +136,7 @@ export function JobsView() {
                 <div className="text-xs text-gray-500">{job.message}</div>
               )}
 
-              {job.progress !== undefined && status === 'running' && (
+              {job.progress !== undefined && (status === 'running' || status === 'canceling') && (
                 <div className="flex items-center gap-2">
                   <ProgressBar progress={job.progress} className="flex-1" />
                   <span className="text-xs text-gray-500 tabular-nums">
@@ -148,6 +164,8 @@ function JobStatusIcon({ status }: { status: string }) {
   switch (status) {
     case 'running':
       return <Loader className="w-4 h-4 text-verbatim-500 animate-spin" />;
+    case 'canceling':
+      return <Loader className="w-4 h-4 text-orange-500 animate-spin" />;
     case 'completed':
       return <CheckCircle className="w-4 h-4 text-green-500" />;
     case 'failed':
@@ -163,6 +181,7 @@ function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     pending: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
     running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    canceling: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
     completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     canceled: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
