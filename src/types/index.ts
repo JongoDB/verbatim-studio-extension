@@ -28,6 +28,9 @@ export interface Document {
   created_at: string;
   updated_at?: string;
   project_id?: string;
+  text?: string;
+  content?: string;
+  extracted_text?: string;
 }
 
 export interface Project {

@@ -26,6 +26,8 @@ import {
   listDocuments,
   listRecordings,
   uploadDocument,
+  getDocumentContent,
+  getRecordingTranscript,
 } from '@/lib/api';
 import type { ChatMessage, ChatContext, Conversation, Document, Recording } from '@/types';
 
@@ -99,11 +101,18 @@ export function SidePanelApp() {
   const sendMessage = async () => {
     if (!input.trim() || streaming || !connected) return;
 
+    const messageText = input.trim();
+    const hasContext =
+      context.page_url ||
+      context.selected_text ||
+      context.document_ids?.length ||
+      context.recording_ids?.length;
+
     const userMessage: ChatMessage = {
       role: 'user',
-      content: input.trim(),
+      content: messageText,
       timestamp: new Date().toISOString(),
-      context: context.page_url || context.selected_text
+      context: hasContext
         ? {
             page_url: context.page_url,
             selected_text: context.selected_text,
@@ -128,6 +137,46 @@ export function SidePanelApp() {
     abortRef.current = abort;
 
     try {
+      // Fetch actual content for attached documents and recordings
+      let documentsContent = '';
+      if (context.document_ids?.length) {
+        const contentParts: string[] = [];
+        for (let i = 0; i < context.document_ids.length; i++) {
+          const docId = context.document_ids[i];
+          const docName = context.document_names?.[i] || 'Document';
+          try {
+            const text = await getDocumentContent(docId);
+            if (text) {
+              contentParts.push(`[${docName}]:\n${text}`);
+            }
+          } catch {
+            // ignore
+          }
+        }
+        if (contentParts.length > 0) {
+          documentsContent = contentParts.join('\n\n---\n\n');
+        }
+      }
+
+      if (context.recording_ids?.length) {
+        const transcriptParts: string[] = [];
+        for (let i = 0; i < context.recording_ids.length; i++) {
+          const recId = context.recording_ids[i];
+          const recName = context.recording_names?.[i] || 'Recording';
+          try {
+            const text = await getRecordingTranscript(recId);
+            if (text) {
+              transcriptParts.push(`[${recName} - Transcript]:\n${text}`);
+            }
+          } catch {
+            // ignore
+          }
+        }
+        if (transcriptParts.length > 0) {
+          documentsContent += (documentsContent ? '\n\n---\n\n' : '') + transcriptParts.join('\n\n---\n\n');
+        }
+      }
+
       const hasMultiDocs =
         context.document_ids && context.document_ids.length > 1;
 
@@ -145,19 +194,20 @@ export function SidePanelApp() {
 
       if (hasMultiDocs) {
         await streamMultiChat(
-          input.trim(),
+          messageText,
           context.document_ids!,
           onChunk,
           abort.signal,
         );
       } else {
         await streamChat(
-          input.trim(),
+          messageText,
           {
             page_url: context.page_url,
             selected_text: context.selected_text,
             document_ids: context.document_ids,
             recording_ids: context.recording_ids,
+            documents_content: documentsContent || undefined,
           },
           onChunk,
           abort.signal,

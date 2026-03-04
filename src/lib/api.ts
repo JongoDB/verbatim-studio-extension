@@ -104,6 +104,96 @@ export async function uploadDocument(
   return res.json();
 }
 
+export async function getDocument(id: string): Promise<Document> {
+  return request(`/api/documents/${id}`);
+}
+
+// Fetch the text content of a document, trying multiple approaches
+export async function getDocumentContent(id: string): Promise<string> {
+  // First try: the document object itself may include text
+  try {
+    const doc = await getDocument(id);
+    if (doc.text) return doc.text;
+    if (doc.content) return doc.content;
+    if (doc.extracted_text) return doc.extracted_text;
+  } catch {
+    // ignore
+  }
+
+  // Second try: dedicated content endpoint
+  try {
+    const res = await fetch(`${_baseUrl}/api/documents/${id}/content`);
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('json')) {
+        const data = await res.json();
+        return data.text || data.content || data.extracted_text || JSON.stringify(data);
+      }
+      return await res.text();
+    }
+  } catch {
+    // ignore
+  }
+
+  // Third try: chunks endpoint (RAG)
+  try {
+    const res = await fetch(`${_baseUrl}/api/documents/${id}/chunks`);
+    if (res.ok) {
+      const data = await res.json();
+      const chunks = Array.isArray(data) ? data : data.items || data.chunks || [];
+      if (chunks.length > 0) {
+        return chunks.map((c: any) => c.text || c.content || '').filter(Boolean).join('\n\n');
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return '';
+}
+
+// Fetch transcript text for a recording
+export async function getRecordingTranscript(id: string): Promise<string> {
+  // First try: the recording object includes transcript
+  try {
+    const rec = await getRecording(id);
+    if (rec.transcript) return rec.transcript;
+  } catch {
+    // ignore
+  }
+
+  // Second try: dedicated transcript endpoint
+  try {
+    const res = await fetch(`${_baseUrl}/api/recordings/${id}/transcript`);
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('json')) {
+        const data = await res.json();
+        return data.text || data.transcript || data.content || '';
+      }
+      return await res.text();
+    }
+  } catch {
+    // ignore
+  }
+
+  // Third try: segments endpoint
+  try {
+    const res = await fetch(`${_baseUrl}/api/recordings/${id}/segments`);
+    if (res.ok) {
+      const data = await res.json();
+      const segments = Array.isArray(data) ? data : data.items || data.segments || [];
+      if (segments.length > 0) {
+        return segments.map((s: any) => s.text || '').filter(Boolean).join(' ');
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return '';
+}
+
 export async function triggerOcr(documentId: string, label?: string): Promise<void> {
   try {
     const res = await fetch(`${_baseUrl}/api/documents/${documentId}/ocr`, {
@@ -135,13 +225,20 @@ export async function streamChat(
     selected_text?: string;
     document_ids?: string[];
     recording_ids?: string[];
+    documents_content?: string;
   },
   onChunk?: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
   // Build request body matching ChatRequest schema
   const body: Record<string, unknown> = { message };
-  if (context?.selected_text) body.context = context.selected_text;
+
+  // Build rich context: combine selected text, page URL, and document/recording content
+  const contextParts: string[] = [];
+  if (context?.selected_text) contextParts.push(context.selected_text);
+  if (context?.documents_content) contextParts.push(context.documents_content);
+
+  if (contextParts.length > 0) body.context = contextParts.join('\n\n');
   if (context?.page_url) body.page_url = context.page_url;
   if (context?.document_ids?.length) body.document_ids = context.document_ids;
   if (context?.recording_ids?.length) body.recording_ids = context.recording_ids;
