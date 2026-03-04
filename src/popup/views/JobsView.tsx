@@ -1,35 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Briefcase, CheckCircle, Clock, AlertCircle, Loader, X } from 'lucide-react';
 import { useActiveJobs } from '@/hooks/useActiveJobs';
 import { cancelJob } from '@/lib/api';
 import { ProgressBar } from '@/components/ProgressBar';
 import { EmptyState } from '@/components/EmptyState';
 import { useStore } from '@/hooks/useStore';
-import type { Job } from '@/types';
 
 export function JobsView() {
   const activeJobs = useActiveJobs();
   const connected = useStore((s) => s.connected);
   const dismissJobs = useStore((s) => s.dismissJobs);
-  const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set());
-
-  // Clean up cancelingIds once the backend reports terminal status
-  useEffect(() => {
-    if (cancelingIds.size === 0) return;
-    const stillCanceling = new Set<string>();
-    for (const id of cancelingIds) {
-      const job = activeJobs.find((j) => j.id === id);
-      if (job && (job.status === 'pending' || job.status === 'running')) {
-        stillCanceling.add(id);
-      }
-    }
-    if (stillCanceling.size !== cancelingIds.size) {
-      setCancelingIds(stillCanceling);
-    }
-  }, [activeJobs, cancelingIds]);
+  const markCanceling = useStore((s) => s.markCanceling);
 
   const handleCancel = async (jobId: string) => {
-    setCancelingIds((prev) => new Set(prev).add(jobId));
+    markCanceling(jobId);
     try {
       await cancelJob(jobId);
     } catch {
@@ -44,17 +28,9 @@ export function JobsView() {
     dismissJobs(terminalIds);
   };
 
-  const getDisplayStatus = (job: Job): string => {
-    if (cancelingIds.has(job.id) && (job.status === 'pending' || job.status === 'running')) {
-      return 'canceling';
-    }
-    return job.status;
-  };
-
-  const activeCount = activeJobs.filter((j) => {
-    const s = getDisplayStatus(j);
-    return s === 'pending' || s === 'running';
-  }).length;
+  const activeCount = activeJobs.filter(
+    (j) => j.status === 'pending' || j.status === 'running',
+  ).length;
 
   const hasTerminal = activeJobs.some(
     (j) => j.status !== 'pending' && j.status !== 'running',
@@ -108,9 +84,9 @@ export function JobsView() {
 
       <div className="space-y-2">
         {activeJobs.map((job) => {
-          const status = getDisplayStatus(job);
+          const status = job.status as string;
           const isActive = status === 'pending' || status === 'running';
-          const isTerminal = !isActive && status !== 'canceling';
+          const isTerminal = !isActive;
 
           return (
             <div
@@ -144,7 +120,7 @@ export function JobsView() {
                 <div className="text-xs text-gray-500">{job.message}</div>
               )}
 
-              {job.progress !== undefined && (status === 'running' || status === 'canceling') && (
+              {job.progress !== undefined && status === 'running' && (
                 <div className="flex items-center gap-2">
                   <ProgressBar progress={job.progress} className="flex-1" />
                   <span className="text-xs text-gray-500 tabular-nums">
@@ -172,8 +148,6 @@ function JobStatusIcon({ status }: { status: string }) {
   switch (status) {
     case 'running':
       return <Loader className="w-4 h-4 text-verbatim-500 animate-spin" />;
-    case 'canceling':
-      return <Loader className="w-4 h-4 text-orange-500 animate-spin" />;
     case 'completed':
       return <CheckCircle className="w-4 h-4 text-green-500" />;
     case 'failed':
@@ -189,7 +163,6 @@ function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     pending: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
     running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    canceling: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
     completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     canceled: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',

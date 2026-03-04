@@ -45,13 +45,31 @@ function isRelevantJob(job: Job): boolean {
 }
 
 export function useActiveJobs() {
-  const { connected, activeJobs, setActiveJobs, updateJob, dismissedJobIds } = useStore();
+  const {
+    connected, activeJobs, setActiveJobs, updateJob,
+    dismissedJobIds, cancelingJobIds,
+  } = useStore();
 
   const fetchJobs = useCallback(async () => {
     try {
       const allJobs = await listJobs();
       const relevant = allJobs.filter(isRelevantJob);
       setActiveJobs(relevant);
+
+      // Clean up cancelingJobIds for jobs that have actually reached terminal status
+      const { cancelingJobIds: current } = useStore.getState();
+      if (current.size > 0) {
+        let changed = false;
+        const next = new Set(current);
+        for (const id of current) {
+          const job = relevant.find((j) => j.id === id);
+          if (!job || (job.status !== 'pending' && job.status !== 'running')) {
+            next.delete(id);
+            changed = true;
+          }
+        }
+        if (changed) useStore.setState({ cancelingJobIds: next });
+      }
     } catch {
       // ignore — backend may be down
     }
@@ -93,8 +111,15 @@ export function useActiveJobs() {
     };
   }, [connected, fetchJobs, updateJob]);
 
-  // Filter out dismissed jobs
-  const visibleJobs = activeJobs.filter((j) => !dismissedJobIds.has(j.id));
+  // Filter out dismissed jobs, apply optimistic canceling status
+  const visibleJobs = activeJobs
+    .filter((j) => !dismissedJobIds.has(j.id))
+    .map((j) => {
+      if (cancelingJobIds.has(j.id) && (j.status === 'pending' || j.status === 'running')) {
+        return { ...j, status: 'canceled' as Job['status'] };
+      }
+      return j;
+    });
 
   return visibleJobs;
 }

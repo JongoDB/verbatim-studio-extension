@@ -14,6 +14,10 @@ interface AppState {
   dismissJob: (jobId: string) => void;
   dismissJobs: (jobIds: string[]) => void;
 
+  // IDs of jobs the user has requested to cancel (optimistic UI)
+  cancelingJobIds: Set<string>;
+  markCanceling: (jobId: string) => void;
+
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
 }
@@ -51,6 +55,14 @@ export const useStore = create<AppState>((set) => ({
       jobIds.forEach((id) => next.add(id));
       persistDismissedIds(next);
       return { dismissedJobIds: next };
+    }),
+
+  cancelingJobIds: new Set(),
+  markCanceling: (jobId) =>
+    set((state) => {
+      const next = new Set(state.cancelingJobIds);
+      next.add(jobId);
+      return { cancelingJobIds: next };
     }),
 
   darkMode: false,
