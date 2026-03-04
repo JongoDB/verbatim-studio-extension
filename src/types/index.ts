@@ -98,7 +98,7 @@ export interface SearchResponse {
 
 // WebSocket message types
 export interface WSMessage {
-  type: 'invalidate' | 'job_progress';
+  type: string;
   payload: Record<string, unknown>;
 }
 

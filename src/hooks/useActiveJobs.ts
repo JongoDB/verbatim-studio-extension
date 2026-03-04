@@ -13,7 +13,7 @@ export function useActiveJobs() {
   const fetchTrackedJobs = useCallback(async () => {
     try {
       const data = await chrome.storage.session.get('trackedJobs');
-      const tracked: Record<string, { type: string; label: string; completedAt?: number }> =
+      const tracked: Record<string, { type: string; label: string; completedAt?: number; trackedAt?: number }> =
         data.trackedJobs || {};
       const jobIds = Object.keys(tracked);
 
@@ -31,6 +31,13 @@ export function useActiveJobs() {
 
         // Remove jobs that reached terminal state more than 60 seconds ago
         if (meta.completedAt && now - meta.completedAt > 60000) {
+          delete tracked[id];
+          dirty = true;
+          continue;
+        }
+
+        // Remove jobs tracked for over 10 minutes with no completion (stale)
+        if (meta.trackedAt && !meta.completedAt && now - meta.trackedAt > 10 * 60 * 1000) {
           delete tracked[id];
           dirty = true;
           continue;
@@ -98,6 +105,11 @@ export function useActiveJobs() {
 
       // Backend invalidated jobs — re-fetch immediately
       if (message.type === 'INVALIDATE' && message.resource === 'jobs') {
+        wrappedFetch();
+      }
+
+      // Service worker cleaned up tracked jobs — re-fetch
+      if (message.type === 'TRACKED_JOBS_CHANGED') {
         wrappedFetch();
       }
     };

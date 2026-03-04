@@ -20,8 +20,22 @@ async function trackJob(jobId: string, type: string, label: string) {
   try {
     const data = await chrome.storage.session.get('trackedJobs');
     const tracked = data.trackedJobs || {};
-    tracked[jobId] = { type, label };
+    tracked[jobId] = { type, label, trackedAt: Date.now() };
     await chrome.storage.session.set({ trackedJobs: tracked });
+  } catch {}
+}
+
+// Remove a tracked job and notify the popup
+async function untrackJob(jobId: string) {
+  try {
+    const data = await chrome.storage.session.get('trackedJobs');
+    const tracked = data.trackedJobs || {};
+    if (tracked[jobId]) {
+      delete tracked[jobId];
+      await chrome.storage.session.set({ trackedJobs: tracked });
+      updateJobBadge();
+      chrome.runtime.sendMessage({ type: 'TRACKED_JOBS_CHANGED' }).catch(() => {});
+    }
   } catch {}
 }
 
@@ -294,6 +308,16 @@ function handleWSMessage(msg: WSMessage) {
     updateJobBadge();
   }
 
+  // Handle job cancellation/deletion messages (various formats backends might use)
+  if (msg.type === 'job_canceled' || msg.type === 'job_cancelled' ||
+      msg.type === 'job_deleted' || msg.type === 'job_failed') {
+    const payload = msg.payload as { job_id?: string; id?: string };
+    const jobId = payload.job_id || payload.id;
+    if (jobId) {
+      untrackJob(jobId);
+    }
+  }
+
   if (msg.type === 'invalidate') {
     const payload = msg.payload as { resource: string; id?: string };
     chrome.runtime.sendMessage({
@@ -302,14 +326,14 @@ function handleWSMessage(msg: WSMessage) {
       id: payload.id,
     }).catch(() => {});
 
-    // When jobs are invalidated, immediately re-check tracked jobs
-    if (payload.resource === 'jobs') {
+    // When jobs or recordings are invalidated, immediately re-check tracked jobs
+    if (payload.resource === 'jobs' || payload.resource === 'recordings') {
       refreshTrackedJobs();
     }
   }
 }
 
-// Re-check tracked jobs against the backend (called on invalidate or periodic sync)
+// Re-check tracked jobs against the backend
 async function refreshTrackedJobs() {
   try {
     const data = await chrome.storage.session.get('trackedJobs');
@@ -317,10 +341,25 @@ async function refreshTrackedJobs() {
     const jobIds = Object.keys(tracked);
     if (jobIds.length === 0) return;
 
+    const now = Date.now();
     let dirty = false;
 
     for (const id of jobIds) {
-      if (tracked[id].completedAt) continue; // Already terminal
+      // Already terminal — clean up after 60s
+      if (tracked[id].completedAt) {
+        if (now - tracked[id].completedAt > 60000) {
+          delete tracked[id];
+          dirty = true;
+        }
+        continue;
+      }
+
+      // Staleness check: if tracked for over 10 minutes with no completion, remove it
+      if (tracked[id].trackedAt && now - tracked[id].trackedAt > 10 * 60 * 1000) {
+        delete tracked[id];
+        dirty = true;
+        continue;
+      }
 
       try {
         const res = await fetch(`${getBaseUrl()}/api/jobs/${id}`);
@@ -333,7 +372,7 @@ async function refreshTrackedJobs() {
         const job = await res.json();
         const isTerminal = job.status !== 'pending' && job.status !== 'running';
         if (isTerminal) {
-          tracked[id].completedAt = Date.now();
+          tracked[id].completedAt = now;
           dirty = true;
           // Forward the terminal status to the popup
           chrome.runtime.sendMessage({
@@ -356,11 +395,18 @@ async function refreshTrackedJobs() {
     if (dirty) {
       await chrome.storage.session.set({ trackedJobs: tracked });
       updateJobBadge();
+      chrome.runtime.sendMessage({ type: 'TRACKED_JOBS_CHANGED' }).catch(() => {});
     }
   } catch {
     // ignore
   }
 }
+
+// Periodically refresh tracked jobs even without WebSocket triggers
+// This catches cases where the backend deletes/cancels jobs without notifying
+setInterval(() => {
+  if (connected) refreshTrackedJobs();
+}, 15000);
 
 async function updateJobBadge() {
   try {

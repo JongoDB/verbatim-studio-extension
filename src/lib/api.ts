@@ -366,7 +366,7 @@ async function trackJobInStorage(jobId: string, type: string, label: string) {
   try {
     const data = await chrome.storage.session.get('trackedJobs');
     const tracked = data.trackedJobs || {};
-    tracked[jobId] = { type, label };
+    tracked[jobId] = { type, label, trackedAt: Date.now() };
     await chrome.storage.session.set({ trackedJobs: tracked });
   } catch {
     // ignore — may fail outside extension context
