@@ -111,7 +111,7 @@ chrome.action.onClicked.addListener((tab) => {
 // Health check
 async function checkHealthAndConnect() {
   try {
-    const res = await fetch(`${getBaseUrl()}/api/health`);
+    const res = await fetch(`${getBaseUrl()}/health`);
     if (res.ok) {
       setConnected(true);
       connectWebSocket();

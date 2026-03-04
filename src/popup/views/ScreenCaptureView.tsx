@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Camera, Scissors, Monitor } from 'lucide-react';
+import { uploadDocument } from '@/lib/api';
 
 interface ScreenCaptureViewProps {
   connected: boolean;
@@ -28,14 +29,7 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
           try {
             const response = await fetch(dataUrl);
             const blob = await response.blob();
-            const formData = new FormData();
-            formData.append('file', blob, `screenshot-${Date.now()}.png`);
-
-            await fetch('http://127.0.0.1:52780/api/documents/upload', {
-              method: 'POST',
-              body: formData,
-            });
-
+            await uploadDocument(blob, `screenshot-${Date.now()}.png`);
             setStatus('Screenshot uploaded!');
           } catch {
             setStatus('Failed to upload screenshot');

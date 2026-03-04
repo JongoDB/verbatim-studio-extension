@@ -34,7 +34,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // Health
 export async function checkHealth(): Promise<HealthResponse> {
-  return request('/api/health');
+  return request('/health');
 }
 
 // Recordings
