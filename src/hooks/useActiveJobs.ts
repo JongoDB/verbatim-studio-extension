@@ -7,17 +7,33 @@ import type { Job } from '@/types';
 const RELEVANT_JOB_TYPES = ['transcri', 'asr', 'ocr', 'text_extract', 'speech', 'embed', 'index'];
 
 function isRelevantJob(job: Job): boolean {
-  // Only recent jobs (within 1 hour)
-  if (job.created_at) {
-    const created = new Date(job.created_at).getTime();
-    const cutoff = Date.now() - 60 * 60 * 1000;
-    if (!isNaN(created) && created < cutoff) return false;
-  }
+  const isActive = job.status === 'pending' || job.status === 'running';
+
   // Only relevant types (if type is known)
   if (job.type && job.type !== 'unknown') {
     const t = job.type.toLowerCase();
     if (!RELEVANT_JOB_TYPES.some((r) => t.includes(r))) return false;
   }
+
+  if (isActive) {
+    // Active jobs: show if created within last hour
+    if (job.created_at) {
+      const created = new Date(job.created_at).getTime();
+      if (!isNaN(created) && created < Date.now() - 60 * 60 * 1000) return false;
+    }
+    return true;
+  }
+
+  // Terminal jobs: auto-hide after 60 seconds
+  if (job.completed_at) {
+    const completed = new Date(job.completed_at).getTime();
+    if (!isNaN(completed) && completed < Date.now() - 60 * 1000) return false;
+  } else if (job.created_at) {
+    // No completed_at — fallback to created_at, hide after 2 minutes
+    const created = new Date(job.created_at).getTime();
+    if (!isNaN(created) && created < Date.now() - 2 * 60 * 1000) return false;
+  }
+
   return true;
 }
 
