@@ -24,6 +24,7 @@ import {
   streamChat,
   streamMultiChat,
   listConversations,
+  getConversation,
   saveConversation,
   listDocuments,
   listRecordings,
@@ -356,8 +357,16 @@ export function SidePanelApp() {
     }
   };
 
-  const loadConversation = (conv: Conversation) => {
-    setMessages(conv.messages || []);
+  const loadConversation = async (conv: Conversation) => {
+    try {
+      // Fetch full conversation with messages from the backend
+      const full = await getConversation(conv.id);
+      setMessages(full.messages || []);
+    } catch {
+      // Fall back to whatever the list response had
+      setMessages(conv.messages || []);
+    }
+    setContext({});
     setShowConversations(false);
   };
 

@@ -345,6 +345,10 @@ export async function listConversations(): Promise<Conversation[]> {
   return [];
 }
 
+export async function getConversation(id: string): Promise<Conversation> {
+  return request(`/api/conversations/${id}`);
+}
+
 export async function saveConversation(conversation: {
   title: string;
   messages: Array<{ role: string; content: string }>;
