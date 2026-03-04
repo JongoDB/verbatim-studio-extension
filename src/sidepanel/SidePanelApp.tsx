@@ -33,6 +33,7 @@ import type { ChatMessage, ChatContext, Conversation, Document, Recording } from
 
 interface AttachedContext {
   page_url?: string;
+  page_content?: string;
   selected_text?: string;
   document_ids?: string[];
   recording_ids?: string[];
@@ -93,57 +94,65 @@ export function SidePanelApp() {
       // Restricted pages can't run content scripts
       if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:')) {
         setContext((prev) => ({ ...prev, page_url: tab.url }));
-        showContextTooltip('Page URL attached. This page doesn\'t support text selection capture.');
+        showContextTooltip('Page URL attached. This page doesn\'t support content capture.');
         return;
       }
 
       setContext((prev) => ({ ...prev, page_url: tab.url }));
 
-      // Try to get selected text from content script
-      const requestSelection = () => {
-        chrome.tabs.sendMessage(
-          tab.id!,
-          { type: 'GET_SELECTION' },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              // Content script not loaded — still have the URL
-              showContextTooltip('Page URL attached. Tip: highlight text on the page first, then click here to include it as context.');
-              return;
-            }
-            if (response?.selectedText) {
-              setContext((prev) => ({ ...prev, selected_text: response.selectedText }));
-              showContextTooltip('Page URL and selected text attached.');
-            } else {
-              showContextTooltip('Page URL attached. Tip: highlight text on the page first, then click here to include it as context.');
-            }
-          },
-        );
+      const handlePageContext = (response: any) => {
+        const parts: string[] = [];
+        if (response?.pageTitle) parts.push(response.pageTitle);
+        if (response?.metaDesc) parts.push(response.metaDesc);
+        if (response?.pageText) parts.push(response.pageText);
+        const pageContent = parts.join('\n\n');
+
+        if (response?.selectedText) {
+          setContext((prev) => ({
+            ...prev,
+            selected_text: response.selectedText,
+            page_content: pageContent || undefined,
+          }));
+          showContextTooltip('Page content and selected text attached.');
+        } else if (pageContent) {
+          setContext((prev) => ({
+            ...prev,
+            page_content: pageContent,
+          }));
+          showContextTooltip('Page content attached. Tip: highlight text for more targeted context.');
+        } else {
+          showContextTooltip('Page URL attached.');
+        }
+      };
+
+      // Request full page context from content script
+      const requestPageContext = () => {
+        chrome.tabs.sendMessage(tab.id!, { type: 'GET_PAGE_CONTEXT' }, (response) => {
+          if (chrome.runtime.lastError) {
+            showContextTooltip('Page URL attached. Could not read page content.');
+            return;
+          }
+          handlePageContext(response);
+        });
       };
 
       // First attempt — if content script is already loaded
-      chrome.tabs.sendMessage(tab.id!, { type: 'GET_SELECTION' }, (response) => {
+      chrome.tabs.sendMessage(tab.id!, { type: 'GET_PAGE_CONTEXT' }, (response) => {
         if (chrome.runtime.lastError) {
           // Content script not loaded — try to inject it
           chrome.scripting.executeScript(
             { target: { tabId: tab.id! }, files: ['content-script.js'] },
             () => {
               if (chrome.runtime.lastError) {
-                // Can't inject (protected page) — just use URL
-                showContextTooltip('Page URL attached. Text selection isn\'t available on this page.');
+                showContextTooltip('Page URL attached. Content capture isn\'t available on this page.');
                 return;
               }
-              // Script injected — retry after brief delay
-              setTimeout(requestSelection, 100);
+              setTimeout(requestPageContext, 100);
             },
           );
           return;
         }
-        if (response?.selectedText) {
-          setContext((prev) => ({ ...prev, selected_text: response.selectedText }));
-          showContextTooltip('Page URL and selected text attached.');
-        } else {
-          showContextTooltip('Page URL attached. Tip: highlight text on the page first, then click here to include it as context.');
-        }
+        handlePageContext(response);
       });
     });
   }, [showContextTooltip]);
@@ -154,6 +163,7 @@ export function SidePanelApp() {
     const messageText = input.trim();
     const hasContext =
       context.page_url ||
+      context.page_content ||
       context.selected_text ||
       context.document_ids?.length ||
       context.recording_ids?.length;
@@ -225,6 +235,13 @@ export function SidePanelApp() {
         if (transcriptParts.length > 0) {
           documentsContent += (documentsContent ? '\n\n---\n\n' : '') + transcriptParts.join('\n\n---\n\n');
         }
+      }
+
+      // Prepend page content if captured via Globe button
+      if (context.page_content) {
+        const pageLabel = context.page_url ? `[Page: ${context.page_url}]` : '[Page Content]';
+        documentsContent = `${pageLabel}:\n${context.page_content}` +
+          (documentsContent ? '\n\n---\n\n' + documentsContent : '');
       }
 
       const hasMultiDocs =
@@ -463,13 +480,20 @@ export function SidePanelApp() {
       </div>
 
       {/* Context chips */}
-      {(context.page_url || context.selected_text || context.document_ids?.length || context.recording_ids?.length) && (
+      {(context.page_url || context.page_content || context.selected_text || context.document_ids?.length || context.recording_ids?.length) && (
         <div className="px-4 py-2 border-t flex flex-wrap gap-1.5">
           {context.page_url && (
             <ContextChip
               icon={<Globe className="w-3 h-3" />}
-              label="Page URL"
-              onRemove={() => removeContext('page_url')}
+              label={context.page_content ? 'Page Content' : 'Page URL'}
+              onRemove={() => {
+                setContext((prev) => {
+                  const next = { ...prev };
+                  delete next.page_url;
+                  delete next.page_content;
+                  return next;
+                });
+              }}
             />
           )}
           {context.selected_text && (

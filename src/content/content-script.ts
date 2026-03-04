@@ -17,6 +17,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'GET_PAGE_CONTEXT') {
+    const selectedText = window.getSelection()?.toString() || '';
+    const pageTitle = document.title || '';
+    const metaDesc =
+      (document.querySelector('meta[name="description"]') as HTMLMetaElement)?.content || '';
+
+    // Extract readable text from the page body, stripping nav/script/style noise
+    let pageText = '';
+    try {
+      const main =
+        document.querySelector('main') ||
+        document.querySelector('article') ||
+        document.querySelector('[role="main"]') ||
+        document.body;
+      const clone = main.cloneNode(true) as HTMLElement;
+      // Remove noisy elements
+      clone.querySelectorAll('script, style, nav, header, footer, noscript, iframe, svg')
+        .forEach((el) => el.remove());
+      pageText = (clone.innerText || clone.textContent || '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+        .slice(0, 5000);
+    } catch {
+      // ignore
+    }
+
+    sendResponse({ selectedText, pageTitle, metaDesc, pageText });
+    return true;
+  }
+
   return false;
 });
 
