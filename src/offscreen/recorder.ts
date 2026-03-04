@@ -13,30 +13,35 @@ let pausedDuration = 0;
 let pauseStart = 0;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  switch (message.type) {
-    case 'OFFSCREEN_START_RECORDING':
-      startRecording().then(() => sendResponse({ success: true })).catch((err) => {
-        sendResponse({ error: err.message });
-      });
+  switch (message.target) {
+    case 'offscreen':
+      break;
+    default:
+      return false;
+  }
+
+  switch (message.action) {
+    case 'start':
+      startRecording()
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ error: err.message }));
       return true;
 
-    case 'OFFSCREEN_PAUSE_RECORDING':
+    case 'pause':
       if (mediaRecorder?.state === 'recording') {
         mediaRecorder.pause();
         pauseStart = Date.now();
-        chrome.runtime.sendMessage({ type: 'RECORDING_STATE', isPaused: true });
       }
       return false;
 
-    case 'OFFSCREEN_RESUME_RECORDING':
+    case 'resume':
       if (mediaRecorder?.state === 'paused') {
         pausedDuration += Date.now() - pauseStart;
         mediaRecorder.resume();
-        chrome.runtime.sendMessage({ type: 'RECORDING_STATE', isPaused: false });
       }
       return false;
 
-    case 'OFFSCREEN_STOP_RECORDING':
+    case 'stop':
       stopRecording();
       return false;
   }
@@ -53,7 +58,6 @@ async function startRecording() {
 
   chunks = [];
 
-  // Audio analyser for level metering
   audioContext = new AudioContext();
   const source = audioContext.createMediaStreamSource(stream);
   analyser = audioContext.createAnalyser();
@@ -86,8 +90,13 @@ async function startRecording() {
 
   // Send duration updates
   durationTimer = setInterval(() => {
-    const elapsed = (Date.now() - startTime - pausedDuration) / 1000;
-    chrome.runtime.sendMessage({ type: 'RECORDING_DURATION', duration: elapsed }).catch(() => {});
+    const paused = mediaRecorder?.state === 'paused' ? Date.now() - pauseStart : 0;
+    const elapsed = (Date.now() - startTime - pausedDuration - paused) / 1000;
+    chrome.runtime.sendMessage({
+      type: 'RECORDING_DURATION',
+      duration: elapsed,
+      isPaused: mediaRecorder?.state === 'paused',
+    }).catch(() => {});
   }, 200);
 
   chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' }).catch(() => {});
@@ -100,7 +109,6 @@ function stopRecording() {
     const blob = new Blob(chunks, { type: 'audio/webm' });
     const duration = (Date.now() - startTime - pausedDuration) / 1000;
 
-    // Convert to base64 data URL for messaging
     const reader = new FileReader();
     reader.onload = () => {
       chrome.runtime.sendMessage({

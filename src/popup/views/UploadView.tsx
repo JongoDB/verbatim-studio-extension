@@ -170,16 +170,25 @@ export function UploadView({ connected }: UploadViewProps) {
             <ProjectSelect value={projectId} onChange={setProjectId} />
           </div>
           {items.some((item) => item.file.type.startsWith('image/')) && (
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={runOcr}
-                onChange={(e) => setRunOcr(e.target.checked)}
-                className="rounded"
-              />
+            <label className="flex items-center justify-between cursor-pointer">
               <span className="text-sm text-gray-700 dark:text-gray-300">
                 Run OCR on images
               </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={runOcr}
+                onClick={() => setRunOcr(!runOcr)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  runOcr ? 'bg-verbatim-500' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    runOcr ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                  }`}
+                />
+              </button>
             </label>
           )}
         </div>

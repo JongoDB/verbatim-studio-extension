@@ -22,12 +22,15 @@ export const useStore = create<AppState>((set) => ({
   updateJob: (job) =>
     set((state) => {
       const idx = state.activeJobs.findIndex((j) => j.id === job.id);
+      let jobs;
       if (idx >= 0) {
-        const updated = [...state.activeJobs];
-        updated[idx] = job;
-        return { activeJobs: updated };
+        jobs = [...state.activeJobs];
+        jobs[idx] = job;
+      } else {
+        jobs = [...state.activeJobs, job];
       }
-      return { activeJobs: [...state.activeJobs, job] };
+      // Remove completed/failed jobs from the active list
+      return { activeJobs: jobs.filter((j) => j.status === 'pending' || j.status === 'running') };
     }),
 
   darkMode: false,

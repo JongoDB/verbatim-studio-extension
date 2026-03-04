@@ -46,10 +46,43 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
 
   const handleRegionCapture = () => {
     if (!connected) return;
-    // Send message to service worker to initiate screen capture + region selection
-    chrome.runtime.sendMessage({ type: 'START_SCREEN_CAPTURE' });
-    // Close popup so the content script overlay is visible
-    window.close();
+    setCapturing(true);
+
+    // Capture the tab while popup is still open, then send to content script
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (!tab?.id) {
+        setStatus('No active tab found');
+        setCapturing(false);
+        return;
+      }
+
+      chrome.tabs.captureVisibleTab(
+        { format: 'png' },
+        (dataUrl) => {
+          if (chrome.runtime.lastError || !dataUrl) {
+            setStatus('Failed to capture tab');
+            setCapturing(false);
+            return;
+          }
+
+          // Send screenshot to content script for region selection
+          chrome.tabs.sendMessage(
+            tab.id!,
+            { type: 'SCREEN_CAPTURE_RESULT', dataUrl },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                setStatus('Content script not available on this page');
+                setCapturing(false);
+                return;
+              }
+              // Close popup so the overlay is fully visible
+              window.close();
+            },
+          );
+        },
+      );
+    });
   };
 
   if (!connected) {

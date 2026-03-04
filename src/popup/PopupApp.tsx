@@ -60,9 +60,11 @@ export function PopupApp() {
 
       {!connected ? (
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-          <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
-            <span className="text-2xl font-bold text-verbatim-500">V</span>
-          </div>
+          <img
+            src={chrome.runtime.getURL('verbatim-icon.png')}
+            alt="Verbatim"
+            className="w-16 h-16 rounded-2xl mb-4"
+          />
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
             Verbatim Studio not detected
           </h2>
@@ -148,10 +150,11 @@ function Header({
             &larr;
           </button>
         )}
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-bold text-verbatim-500">V</span>
-          <span className="text-sm font-semibold">Verbatim Studio</span>
-        </div>
+        <img
+          src={chrome.runtime.getURL('verbatim-logo.png')}
+          alt="Verbatim Studio"
+          className="h-5"
+        />
       </div>
       <ConnectionBadge connected={connected} />
     </div>

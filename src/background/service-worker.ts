@@ -285,7 +285,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // Recording messages: popup -> service worker -> offscreen
   if (message.type === 'START_RECORDING') {
     ensureOffscreenDocument().then(() => {
-      chrome.runtime.sendMessage({ type: 'OFFSCREEN_START_RECORDING' }, (response) => {
+      chrome.runtime.sendMessage({ target: 'offscreen', action: 'start' }, (response) => {
         sendResponse(response);
       });
     }).catch((err) => {
@@ -295,17 +295,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'PAUSE_RECORDING') {
-    chrome.runtime.sendMessage({ type: 'OFFSCREEN_PAUSE_RECORDING' });
+    chrome.runtime.sendMessage({ target: 'offscreen', action: 'pause' });
     return false;
   }
 
   if (message.type === 'RESUME_RECORDING') {
-    chrome.runtime.sendMessage({ type: 'OFFSCREEN_RESUME_RECORDING' });
+    chrome.runtime.sendMessage({ target: 'offscreen', action: 'resume' });
     return false;
   }
 
   if (message.type === 'STOP_RECORDING') {
-    chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_RECORDING' });
+    chrome.runtime.sendMessage({ target: 'offscreen', action: 'stop' });
     return false;
   }
 

@@ -12,6 +12,7 @@ import {
   X,
   Loader,
   ChevronDown,
+  MessageSquare,
 } from 'lucide-react';
 import { ConnectionBadge } from '@/components/ConnectionBadge';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
@@ -241,7 +242,7 @@ export function SidePanelApp() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-lg font-bold text-verbatim-500">V</span>
+          <MessageSquare className="w-4 h-4 text-verbatim-500" />
           <span className="text-sm font-semibold">Chat with Max</span>
         </div>
         <div className="flex items-center gap-1">
@@ -311,7 +312,7 @@ export function SidePanelApp() {
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-12 h-12 rounded-full bg-verbatim-100 dark:bg-verbatim-900/30 flex items-center justify-center mb-3">
-              <span className="text-xl font-bold text-verbatim-500">M</span>
+              <MessageSquare className="w-6 h-6 text-verbatim-500" />
             </div>
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Hi! I'm Max, your AI assistant.

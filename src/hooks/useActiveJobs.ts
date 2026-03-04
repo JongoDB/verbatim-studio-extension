@@ -15,7 +15,15 @@ export function useActiveJobs() {
       try {
         const jobs = await listJobs();
         if (mounted) {
-          setActiveJobs(jobs.filter((j) => j.status === 'pending' || j.status === 'running'));
+          const oneHourAgo = Date.now() - 60 * 60 * 1000;
+          setActiveJobs(
+            jobs.filter((j) => {
+              if (j.status !== 'pending' && j.status !== 'running') return false;
+              // Filter out stale jobs older than 1 hour
+              if (j.created_at && new Date(j.created_at).getTime() < oneHourAgo) return false;
+              return true;
+            }),
+          );
         }
       } catch {
         // ignore
