@@ -96,6 +96,12 @@ export async function uploadDocument(
   return res.json();
 }
 
+export async function triggerOcr(documentId: string): Promise<void> {
+  await fetch(`${_baseUrl}/api/documents/${documentId}/ocr`, {
+    method: 'POST',
+  });
+}
+
 // Projects
 export async function listProjects(): Promise<Project[]> {
   const data = await request<PaginatedResponse<Project>>('/api/projects');
@@ -114,10 +120,17 @@ export async function streamChat(
   onChunk?: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
+  // Build request body matching ChatRequest schema
+  const body: Record<string, unknown> = { message };
+  if (context?.selected_text) body.context = context.selected_text;
+  if (context?.page_url) body.page_url = context.page_url;
+  if (context?.document_ids?.length) body.document_ids = context.document_ids;
+  if (context?.recording_ids?.length) body.recording_ids = context.recording_ids;
+
   const res = await fetch(`${_baseUrl}/api/ai/chat/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, context }),
+    body: JSON.stringify(body),
     signal,
   });
 
@@ -228,11 +241,8 @@ export async function saveConversation(conversation: {
 }
 
 // Search
-export async function search(
-  query: string,
-  mode: 'semantic' | 'keyword' = 'keyword',
-): Promise<SearchResponse> {
-  return request(`/api/search/global?q=${encodeURIComponent(query)}&mode=${mode}`);
+export async function search(query: string): Promise<SearchResponse> {
+  return request(`/api/search/global?q=${encodeURIComponent(query)}`);
 }
 
 // Jobs

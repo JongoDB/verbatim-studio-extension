@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Search, FileText, Mic, StickyNote, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Search, FileText, Mic, StickyNote, MessageSquare } from 'lucide-react';
 import { search } from '@/lib/api';
 import { EmptyState } from '@/components/EmptyState';
 import { formatRelativeTime, truncate } from '@/lib/utils';
@@ -11,7 +11,6 @@ interface SearchViewProps {
 
 export function SearchView({ connected }: SearchViewProps) {
   const [query, setQuery] = useState('');
-  const [mode, setMode] = useState<'keyword' | 'semantic'>('keyword');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -21,14 +20,14 @@ export function SearchView({ connected }: SearchViewProps) {
     setSearching(true);
     setSearched(true);
     try {
-      const data = await search(query.trim(), mode);
-      setResults(data.results);
+      const data = await search(query.trim());
+      setResults(data.results || []);
     } catch {
       setResults([]);
     } finally {
       setSearching(false);
     }
-  }, [query, mode]);
+  }, [query]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSearch();
@@ -45,8 +44,9 @@ export function SearchView({ connected }: SearchViewProps) {
   // Group results by type
   const grouped = results.reduce(
     (acc, r) => {
-      if (!acc[r.type]) acc[r.type] = [];
-      acc[r.type].push(r);
+      const key = getGroupKey(r);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(r);
       return acc;
     },
     {} as Record<string, SearchResult[]>,
@@ -77,20 +77,6 @@ export function SearchView({ connected }: SearchViewProps) {
         </button>
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setMode(mode === 'keyword' ? 'semantic' : 'keyword')}
-          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-        >
-          {mode === 'semantic' ? (
-            <ToggleRight className="w-4 h-4 text-verbatim-500" />
-          ) : (
-            <ToggleLeft className="w-4 h-4" />
-          )}
-          {mode === 'semantic' ? 'Semantic search' : 'Keyword search'}
-        </button>
-      </div>
-
       {searching && (
         <div className="text-center py-4 text-sm text-gray-500">Searching...</div>
       )}
@@ -99,7 +85,7 @@ export function SearchView({ connected }: SearchViewProps) {
         <EmptyState
           icon={<Search className="w-8 h-8" />}
           title="No results"
-          description="Try a different search term or mode"
+          description="Try a different search term"
         />
       )}
 
@@ -107,7 +93,7 @@ export function SearchView({ connected }: SearchViewProps) {
         <div key={type}>
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
             <TypeIcon type={type} />
-            {type === 'recording' ? 'Recordings' : type === 'document' ? 'Documents' : 'Notes'}
+            {groupLabel(type)}
             <span className="text-gray-400">({items.length})</span>
           </div>
           <div className="space-y-1.5">
@@ -116,14 +102,27 @@ export function SearchView({ connected }: SearchViewProps) {
                 key={result.id}
                 className="card p-3 hover:shadow-sm transition-shadow cursor-pointer"
               >
-                <div className="text-sm font-medium">{result.title}</div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {truncate(result.snippet, 120)}
+                <div className="text-sm font-medium">
+                  {result.title || result.recording_title || result.document_title || result.conversation_title || 'Untitled'}
                 </div>
-                <div className="text-xs text-gray-400 mt-1">
-                  {formatRelativeTime(result.created_at)}
-                  {result.score !== undefined && (
-                    <span className="ml-2">Score: {result.score.toFixed(2)}</span>
+                {result.text && (
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {truncate(result.text, 150)}
+                  </div>
+                )}
+                <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
+                  {result.created_at && (
+                    <span>{formatRelativeTime(result.created_at)}</span>
+                  )}
+                  {result.match_type && (
+                    <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-[10px]">
+                      {result.match_type}
+                    </span>
+                  )}
+                  {result.start_time != null && (
+                    <span>
+                      at {Math.floor(result.start_time / 60)}:{String(Math.floor(result.start_time % 60)).padStart(2, '0')}
+                    </span>
                   )}
                 </div>
               </div>
@@ -135,12 +134,32 @@ export function SearchView({ connected }: SearchViewProps) {
   );
 }
 
+function getGroupKey(r: SearchResult): string {
+  if (r.type === 'segment') return 'recording';
+  if (r.type === 'document_chunk') return 'document';
+  if (r.note_id) return 'note';
+  if (r.conversation_id) return 'conversation';
+  return r.type || 'other';
+}
+
+function groupLabel(key: string): string {
+  switch (key) {
+    case 'recording': return 'Recordings';
+    case 'document': return 'Documents';
+    case 'note': return 'Notes';
+    case 'conversation': return 'Conversations';
+    default: return key.charAt(0).toUpperCase() + key.slice(1);
+  }
+}
+
 function TypeIcon({ type }: { type: string }) {
   switch (type) {
     case 'recording':
       return <Mic className="w-3 h-3" />;
     case 'document':
       return <FileText className="w-3 h-3" />;
+    case 'conversation':
+      return <MessageSquare className="w-3 h-3" />;
     default:
       return <StickyNote className="w-3 h-3" />;
   }

@@ -21,11 +21,13 @@ export default defineConfig({
         options: resolve(__dirname, 'src/options/index.html'),
         background: resolve(__dirname, 'src/background/service-worker.ts'),
         content: resolve(__dirname, 'src/content/content-script.ts'),
+        offscreen: resolve(__dirname, 'src/offscreen/recorder.ts'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.name === 'background') return 'service-worker.js';
           if (chunkInfo.name === 'content') return 'content-script.js';
+          if (chunkInfo.name === 'offscreen') return 'offscreen.js';
           return 'assets/[name]-[hash].js';
         },
         chunkFileNames: 'assets/[name]-[hash].js',

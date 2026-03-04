@@ -7,8 +7,9 @@ export interface HealthResponse {
 
 export interface Recording {
   id: string;
-  name: string;
-  filename: string;
+  title?: string;
+  name?: string;
+  filename?: string;
   duration?: number;
   status: string;
   created_at: string;
@@ -19,9 +20,10 @@ export interface Recording {
 
 export interface Document {
   id: string;
-  name: string;
-  filename: string;
-  content_type: string;
+  title?: string;
+  name?: string;
+  filename?: string;
+  content_type?: string;
   status: string;
   created_at: string;
   updated_at?: string;
@@ -67,18 +69,28 @@ export interface Job {
   completed_at?: string;
 }
 
+// Search — matches GlobalSearchResult from the actual API
 export interface SearchResult {
   id: string;
-  type: 'recording' | 'document' | 'note';
-  title: string;
-  snippet: string;
-  score?: number;
-  created_at: string;
+  type: string; // 'segment' | 'document_chunk' | 'note' | etc.
+  title: string | null;
+  text?: string;
+  recording_id?: string | null;
+  recording_title?: string | null;
+  document_id?: string | null;
+  document_title?: string | null;
+  note_id?: string | null;
+  conversation_id?: string | null;
+  conversation_title?: string | null;
+  start_time?: number | null;
+  end_time?: number | null;
+  created_at?: string;
+  match_type?: string;
 }
 
 export interface SearchResponse {
+  query: string;
   results: SearchResult[];
-  total: number;
 }
 
 // WebSocket message types

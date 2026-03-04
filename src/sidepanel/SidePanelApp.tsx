@@ -438,7 +438,7 @@ export function SidePanelApp() {
               ],
               document_names: [
                 ...(prev.document_names || []),
-                ...docs.map((d) => d.name),
+                ...docs.map((d) => d.title || d.name || d.filename || 'Untitled'),
               ],
               recording_ids: [
                 ...(prev.recording_ids || []),
@@ -446,7 +446,7 @@ export function SidePanelApp() {
               ],
               recording_names: [
                 ...(prev.recording_names || []),
-                ...recs.map((r) => r.name),
+                ...recs.map((r) => r.title || r.name || r.filename || 'Untitled'),
               ],
             }));
             setShowContextPicker(false);
@@ -601,7 +601,7 @@ function ContextPicker({
                   className="rounded"
                 />
                 <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <span className="text-sm truncate">{doc.name}</span>
+                <span className="text-sm truncate">{doc.title || doc.name || doc.filename || 'Untitled'}</span>
               </label>
             ))
           )
@@ -622,7 +622,7 @@ function ContextPicker({
                 className="rounded"
               />
               <Mic className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm truncate">{rec.name}</span>
+              <span className="text-sm truncate">{rec.title || rec.name || rec.filename || 'Untitled'}</span>
             </label>
           ))
         )}

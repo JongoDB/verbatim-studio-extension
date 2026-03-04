@@ -10,6 +10,9 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let healthCheckTimer: ReturnType<typeof setInterval> | null = null;
 let backendPort = 52780;
 
+// Pending recording data URL (from offscreen document, awaiting user upload)
+let pendingRecordingDataUrl: string | null = null;
+
 const MAX_RECONNECT_DELAY = 30000;
 
 // Initialize
@@ -34,6 +37,29 @@ function getBaseUrl() {
 
 function getWsUrl() {
   return `ws://127.0.0.1:${backendPort}/api/ws/sync`;
+}
+
+// Offscreen document management
+async function ensureOffscreenDocument() {
+  const contexts = await (chrome.runtime as any).getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+  });
+  if (contexts.length > 0) return;
+
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: [chrome.offscreen.Reason.USER_MEDIA],
+    justification: 'Audio recording with microphone access',
+  });
+}
+
+async function closeOffscreenDocument() {
+  const contexts = await (chrome.runtime as any).getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+  });
+  if (contexts.length > 0) {
+    await chrome.offscreen.closeDocument();
+  }
 }
 
 // Context menus
@@ -89,10 +115,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 
   if (info.menuItemId === 'send-selection' && info.selectionText) {
-    // Open side panel with selected text
     if (tab?.id) {
       chrome.sidePanel.open({ tabId: tab.id });
-      // Store the selection for the side panel to pick up
       await chrome.storage.session.set({
         pendingContext: {
           selected_text: info.selectionText,
@@ -101,11 +125,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       });
     }
   }
-});
-
-// Side panel toggle
-chrome.action.onClicked.addListener((tab) => {
-  // This fires only if there's no default_popup. We use the popup instead.
 });
 
 // Health check
@@ -123,7 +142,6 @@ async function checkHealthAndConnect() {
     setConnected(false);
   }
 
-  // Schedule periodic health check when disconnected
   if (!connected) {
     if (!healthCheckTimer) {
       healthCheckTimer = setInterval(() => {
@@ -138,9 +156,7 @@ async function checkHealthAndConnect() {
 
 function setConnected(isConnected: boolean) {
   connected = isConnected;
-  // Notify all extension views
   chrome.runtime.sendMessage({ type: 'CONNECTION_STATUS', connected }).catch(() => {});
-  // Update icon badge color
   chrome.action.setBadgeBackgroundColor({
     color: isConnected ? '#22c55e' : '#ef4444',
   });
@@ -212,10 +228,8 @@ function handleWSMessage(msg: WSMessage) {
       created_at: new Date().toISOString(),
     };
 
-    // Broadcast to popup/sidepanel
     chrome.runtime.sendMessage({ type: 'JOB_UPDATE', job }).catch(() => {});
 
-    // Show notification on completion
     if (payload.status === 'completed') {
       chrome.notifications.create({
         type: 'basic',
@@ -252,7 +266,7 @@ async function updateJobBadge() {
   }
 }
 
-// Message handling from popup/sidepanel
+// Message handling from popup/sidepanel/offscreen
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'GET_CONNECTION_STATUS') {
     sendResponse({ connected });
@@ -268,6 +282,67 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  // Recording messages: popup -> service worker -> offscreen
+  if (message.type === 'START_RECORDING') {
+    ensureOffscreenDocument().then(() => {
+      chrome.runtime.sendMessage({ type: 'OFFSCREEN_START_RECORDING' }, (response) => {
+        sendResponse(response);
+      });
+    }).catch((err) => {
+      sendResponse({ error: err.message });
+    });
+    return true;
+  }
+
+  if (message.type === 'PAUSE_RECORDING') {
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_PAUSE_RECORDING' });
+    return false;
+  }
+
+  if (message.type === 'RESUME_RECORDING') {
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_RESUME_RECORDING' });
+    return false;
+  }
+
+  if (message.type === 'STOP_RECORDING') {
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_RECORDING' });
+    return false;
+  }
+
+  // Offscreen -> service worker: recording complete, store data URL
+  if (message.type === 'RECORDING_COMPLETE') {
+    pendingRecordingDataUrl = message.dataUrl;
+    // Forward to popup
+    chrome.runtime.sendMessage({
+      type: 'RECORDING_COMPLETE',
+      duration: message.duration,
+      size: message.size,
+    }).catch(() => {});
+    // Close offscreen document
+    closeOffscreenDocument().catch(() => {});
+    return false;
+  }
+
+  // Audio level and duration updates: offscreen -> forward to popup
+  if (message.type === 'AUDIO_LEVEL' || message.type === 'RECORDING_DURATION' ||
+      message.type === 'RECORDING_STARTED' || message.type === 'RECORDING_STATE') {
+    // Already broadcast to all listeners
+    return false;
+  }
+
+  // Upload the pending recording
+  if (message.type === 'UPLOAD_RECORDING') {
+    if (!pendingRecordingDataUrl) {
+      sendResponse({ error: 'No recording data' });
+      return true;
+    }
+    uploadPendingRecording(message.name, message.projectId)
+      .then((result) => sendResponse({ success: true, recording: result }))
+      .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // Screen capture
   if (message.type === 'START_SCREEN_CAPTURE') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {
@@ -276,10 +351,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             sendResponse({ error: 'Failed to capture tab' });
             return;
           }
-          // Send the capture to the content script for region selection
           chrome.tabs.sendMessage(tabs[0].id!, {
             type: 'SCREEN_CAPTURE_RESULT',
             dataUrl,
+          }).catch(() => {
+            // Content script not loaded, just upload the full screenshot
+            uploadScreenshot(dataUrl);
           });
           sendResponse({ success: true });
         });
@@ -289,7 +366,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'CAPTURE_REGION') {
-    // Region was selected in content script, now crop and upload
     handleRegionCapture(message.region, message.dataUrl);
     return true;
   }
@@ -297,13 +373,59 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
+async function uploadPendingRecording(name: string, projectId?: string) {
+  if (!pendingRecordingDataUrl) throw new Error('No recording data');
+
+  const response = await fetch(pendingRecordingDataUrl);
+  const blob = await response.blob();
+  pendingRecordingDataUrl = null;
+
+  const formData = new FormData();
+  formData.append('file', blob, `${name}.webm`);
+  formData.append('title', name);
+  if (projectId) formData.append('project_id', projectId);
+
+  const res = await fetch(`${getBaseUrl()}/api/recordings/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
+}
+
+async function uploadScreenshot(dataUrl: string) {
+  try {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const formData = new FormData();
+    formData.append('file', blob, `screenshot-${Date.now()}.png`);
+
+    await fetch(`${getBaseUrl()}/api/documents`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'Verbatim Studio',
+      message: 'Screenshot uploaded successfully',
+    });
+  } catch {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'Verbatim Studio',
+      message: 'Failed to upload screenshot',
+    });
+  }
+}
+
 async function handleRegionCapture(
   region: { x: number; y: number; width: number; height: number },
   dataUrl: string,
 ) {
   try {
-    // Create offscreen document for canvas operations if needed,
-    // or just use the blob directly
     const response = await fetch(dataUrl);
     const blob = await response.blob();
     const bitmap = await createImageBitmap(blob, region.x, region.y, region.width, region.height);

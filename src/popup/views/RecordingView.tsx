@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Mic, Pause, Play, Square, Upload as UploadIcon } from 'lucide-react';
-import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { AudioLevelMeter } from '@/components/AudioLevelMeter';
 import { ProjectSelect } from '@/components/ProjectSelect';
-import { uploadRecording } from '@/lib/api';
 import { formatDuration } from '@/lib/utils';
 
 interface RecordingViewProps {
@@ -11,48 +9,87 @@ interface RecordingViewProps {
 }
 
 export function RecordingView({ connected }: RecordingViewProps) {
-  const {
-    isRecording,
-    isPaused,
-    duration,
-    audioLevel,
-    startRecording,
-    pauseRecording,
-    resumeRecording,
-    stopRecording,
-  } = useAudioRecorder();
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [hasRecording, setHasRecording] = useState(false);
+  const [recordingSize, setRecordingSize] = useState(0);
+  const [recordingDuration, setRecordingDuration] = useState(0);
 
-  const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
   const [name, setName] = useState('');
   const [projectId, setProjectId] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const handleStop = async () => {
-    const blob = await stopRecording();
-    setRecordingBlob(blob);
-    setName(`Recording ${new Date().toLocaleString()}`);
-  };
+  // Listen for messages from service worker / offscreen document
+  useEffect(() => {
+    const listener = (message: any) => {
+      switch (message.type) {
+        case 'RECORDING_STARTED':
+          setIsRecording(true);
+          setIsPaused(false);
+          setError('');
+          break;
+        case 'RECORDING_STATE':
+          setIsPaused(message.isPaused);
+          break;
+        case 'AUDIO_LEVEL':
+          setAudioLevel(message.level);
+          break;
+        case 'RECORDING_DURATION':
+          setDuration(message.duration);
+          break;
+        case 'RECORDING_COMPLETE':
+          setIsRecording(false);
+          setIsPaused(false);
+          setHasRecording(true);
+          setRecordingDuration(message.duration);
+          setRecordingSize(message.size);
+          setName(`Recording ${new Date().toLocaleString()}`);
+          break;
+      }
+    };
+
+    chrome.runtime?.onMessage.addListener(listener);
+    return () => chrome.runtime?.onMessage.removeListener(listener);
+  }, []);
+
+  const startRecording = useCallback(() => {
+    setError('');
+    chrome.runtime.sendMessage({ type: 'START_RECORDING' }, (response) => {
+      if (response?.error) {
+        setError(`Microphone access denied. Please allow microphone access in Chrome settings.`);
+      }
+    });
+  }, []);
+
+  const pauseRecording = () => chrome.runtime.sendMessage({ type: 'PAUSE_RECORDING' });
+  const resumeRecording = () => chrome.runtime.sendMessage({ type: 'RESUME_RECORDING' });
+  const stopRecording = () => chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
 
   const handleUpload = async () => {
-    if (!recordingBlob || !name.trim()) return;
+    if (!name.trim()) return;
     setUploading(true);
     setError('');
-    try {
-      await uploadRecording(recordingBlob, name.trim(), projectId || undefined);
-      setSuccess('Recording uploaded! Transcription will begin shortly.');
-      setRecordingBlob(null);
-      setName('');
-    } catch (err) {
-      setError('Failed to upload recording');
-    } finally {
-      setUploading(false);
-    }
+    chrome.runtime.sendMessage(
+      { type: 'UPLOAD_RECORDING', name: name.trim(), projectId: projectId || undefined },
+      (response) => {
+        setUploading(false);
+        if (response?.error) {
+          setError('Failed to upload recording');
+        } else {
+          setSuccess('Recording uploaded! Transcription will begin shortly.');
+          setHasRecording(false);
+          setName('');
+        }
+      },
+    );
   };
 
   const handleDiscard = () => {
-    setRecordingBlob(null);
+    setHasRecording(false);
     setName('');
     setSuccess('');
     setError('');
@@ -67,7 +104,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
   }
 
   // Post-recording: name & upload
-  if (recordingBlob) {
+  if (hasRecording) {
     return (
       <div className="p-4 space-y-4">
         <h2 className="text-sm font-semibold flex items-center gap-2">
@@ -76,8 +113,8 @@ export function RecordingView({ connected }: RecordingViewProps) {
         </h2>
 
         <div className="text-xs text-gray-500">
-          Duration: {formatDuration(duration)} &middot;{' '}
-          {(recordingBlob.size / 1024).toFixed(0)} KB
+          Duration: {formatDuration(recordingDuration)} &middot;{' '}
+          {(recordingSize / 1024).toFixed(0)} KB
         </div>
 
         <div className="space-y-3">
@@ -165,7 +202,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
             )}
             <button
               className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg flex items-center gap-1.5 text-sm transition-colors"
-              onClick={handleStop}
+              onClick={stopRecording}
             >
               <Square className="w-4 h-4" />
               Stop
@@ -188,6 +225,7 @@ export function RecordingView({ connected }: RecordingViewProps) {
         </div>
       )}
 
+      {error && <div className="text-xs text-red-500 text-center">{error}</div>}
       {success && <div className="text-xs text-green-600 text-center">{success}</div>}
     </div>
   );

@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { Upload, FileText, Image, Film, X, CheckCircle } from 'lucide-react';
 import { ProjectSelect } from '@/components/ProjectSelect';
 import { ProgressBar } from '@/components/ProgressBar';
-import { uploadDocument, uploadRecording } from '@/lib/api';
+import { uploadDocument, uploadRecording, triggerOcr } from '@/lib/api';
 import { formatFileSize } from '@/lib/utils';
 
 const ACCEPTED_TYPES = [
@@ -41,6 +41,7 @@ export function UploadView({ connected }: UploadViewProps) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [projectId, setProjectId] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [runOcr, setRunOcr] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = useCallback((files: FileList | File[]) => {
@@ -85,7 +86,10 @@ export function UploadView({ connected }: UploadViewProps) {
         if (isAudioVideo) {
           await uploadRecording(file, file.name, projectId || undefined);
         } else {
-          await uploadDocument(file, file.name, projectId || undefined);
+          const doc = await uploadDocument(file, file.name, projectId || undefined);
+          if (runOcr && file.type.startsWith('image/') && doc?.id) {
+            triggerOcr(doc.id).catch(() => {});
+          }
         }
 
         setItems((prev) => {
@@ -156,13 +160,28 @@ export function UploadView({ connected }: UploadViewProps) {
         />
       </div>
 
-      {/* Project selection */}
+      {/* Project selection & OCR */}
       {items.length > 0 && (
-        <div>
-          <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">
-            Assign to project (optional)
-          </label>
-          <ProjectSelect value={projectId} onChange={setProjectId} />
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">
+              Assign to project (optional)
+            </label>
+            <ProjectSelect value={projectId} onChange={setProjectId} />
+          </div>
+          {items.some((item) => item.file.type.startsWith('image/')) && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={runOcr}
+                onChange={(e) => setRunOcr(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                Run OCR on images
+              </span>
+            </label>
+          )}
         </div>
       )}
 
