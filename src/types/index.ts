@@ -62,7 +62,7 @@ export interface ChatContext {
 export interface Job {
   id: string;
   type: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
   progress?: number;
   message?: string;
   created_at: string;

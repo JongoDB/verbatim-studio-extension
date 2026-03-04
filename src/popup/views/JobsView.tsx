@@ -53,7 +53,7 @@ export function JobsView() {
           <div
             key={job.id}
             className={`card p-3 space-y-2 transition-opacity ${
-              job.status === 'completed' || job.status === 'failed' ? 'opacity-60' : ''
+              job.status !== 'pending' && job.status !== 'running' ? 'opacity-60' : ''
             }`}
           >
             <div className="flex items-center justify-between">
@@ -100,6 +100,8 @@ function JobStatusIcon({ status }: { status: string }) {
     case 'completed':
       return <CheckCircle className="w-4 h-4 text-green-500" />;
     case 'failed':
+    case 'canceled':
+    case 'cancelled':
       return <AlertCircle className="w-4 h-4 text-red-500" />;
     default:
       return <Clock className="w-4 h-4 text-gray-400" />;
@@ -112,6 +114,8 @@ function StatusBadge({ status }: { status: string }) {
     running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
     completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    canceled: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    cancelled: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   };
 
   return (

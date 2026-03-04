@@ -269,8 +269,10 @@ function handleWSMessage(msg: WSMessage) {
 
     chrome.runtime.sendMessage({ type: 'JOB_UPDATE', job }).catch(() => {});
 
-    if (payload.status === 'completed') {
-      // Clean up from tracking
+    // Any non-active status is terminal (completed, failed, canceled, cancelled, etc.)
+    const isTerminal = payload.status !== 'pending' && payload.status !== 'running';
+    if (isTerminal) {
+      // Mark for cleanup in tracking
       chrome.storage.session.get('trackedJobs', (data) => {
         const tracked = data.trackedJobs || {};
         if (tracked[payload.job_id]) {
@@ -279,12 +281,14 @@ function handleWSMessage(msg: WSMessage) {
         }
       });
 
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon-128.png',
-        title: 'Verbatim Studio',
-        message: payload.message || `Job completed: ${payload.type || payload.job_id}`,
-      });
+      if (payload.status === 'completed') {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon-128.png',
+          title: 'Verbatim Studio',
+          message: payload.message || `Job completed: ${payload.type || payload.job_id}`,
+        });
+      }
     }
 
     updateJobBadge();
@@ -297,6 +301,64 @@ function handleWSMessage(msg: WSMessage) {
       resource: payload.resource,
       id: payload.id,
     }).catch(() => {});
+
+    // When jobs are invalidated, immediately re-check tracked jobs
+    if (payload.resource === 'jobs') {
+      refreshTrackedJobs();
+    }
+  }
+}
+
+// Re-check tracked jobs against the backend (called on invalidate or periodic sync)
+async function refreshTrackedJobs() {
+  try {
+    const data = await chrome.storage.session.get('trackedJobs');
+    const tracked: Record<string, any> = data.trackedJobs || {};
+    const jobIds = Object.keys(tracked);
+    if (jobIds.length === 0) return;
+
+    let dirty = false;
+
+    for (const id of jobIds) {
+      if (tracked[id].completedAt) continue; // Already terminal
+
+      try {
+        const res = await fetch(`${getBaseUrl()}/api/jobs/${id}`);
+        if (!res.ok) {
+          // Job deleted or not found — remove from tracking
+          delete tracked[id];
+          dirty = true;
+          continue;
+        }
+        const job = await res.json();
+        const isTerminal = job.status !== 'pending' && job.status !== 'running';
+        if (isTerminal) {
+          tracked[id].completedAt = Date.now();
+          dirty = true;
+          // Forward the terminal status to the popup
+          chrome.runtime.sendMessage({
+            type: 'JOB_UPDATE',
+            job: {
+              id,
+              type: job.type || tracked[id].type || 'processing',
+              status: job.status,
+              progress: job.progress,
+              message: job.message,
+              created_at: job.created_at || new Date().toISOString(),
+            },
+          }).catch(() => {});
+        }
+      } catch {
+        // Network error — leave tracked for now
+      }
+    }
+
+    if (dirty) {
+      await chrome.storage.session.set({ trackedJobs: tracked });
+      updateJobBadge();
+    }
+  } catch {
+    // ignore
   }
 }
 
