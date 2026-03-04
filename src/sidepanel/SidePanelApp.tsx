@@ -39,6 +39,8 @@ interface AttachedContext {
   recording_ids?: string[];
   document_names?: string[];
   recording_names?: string[];
+  // Locally-read file text, indexed parallel to document_ids
+  document_local_content?: string[];
 }
 
 export function SidePanelApp() {
@@ -204,13 +206,19 @@ export function SidePanelApp() {
         for (let i = 0; i < context.document_ids.length; i++) {
           const docId = context.document_ids[i];
           const docName = context.document_names?.[i] || 'Document';
-          try {
-            const text = await getDocumentContent(docId);
-            if (text) {
-              contentParts.push(`[${docName}]:\n${text}`);
+
+          // Use locally-read content first (available immediately after upload),
+          // fall back to fetching from backend (may not be ready yet for new uploads)
+          let text = context.document_local_content?.[i] || '';
+          if (!text) {
+            try {
+              text = await getDocumentContent(docId);
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
+          }
+          if (text) {
+            contentParts.push(`[${docName}]:\n${text}`);
           }
         }
         if (contentParts.length > 0) {
@@ -365,6 +373,16 @@ export function SidePanelApp() {
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
+        // Read text-based files locally so content is available immediately
+        let localContent = '';
+        if (isReadableTextFile(file)) {
+          try {
+            localContent = await readFileAsText(file);
+          } catch {
+            // ignore — will fall back to backend
+          }
+        }
+
         const doc = await uploadDocument(file, file.name);
         if (doc?.id) {
           setContext((prev) => ({
@@ -373,6 +391,10 @@ export function SidePanelApp() {
             document_names: [
               ...(prev.document_names || []),
               doc.title || doc.name || doc.filename || file.name,
+            ],
+            document_local_content: [
+              ...(prev.document_local_content || []),
+              localContent,
             ],
           }));
         }
@@ -513,6 +535,7 @@ export function SidePanelApp() {
                   ...prev,
                   document_ids: prev.document_ids?.filter((_, j) => j !== i),
                   document_names: prev.document_names?.filter((_, j) => j !== i),
+                  document_local_content: prev.document_local_content?.filter((_, j) => j !== i),
                 }));
               }}
             />
@@ -806,4 +829,29 @@ function ContextPicker({
       </div>
     </div>
   );
+}
+
+// Text-based file types that can be read directly with FileReader
+const TEXT_EXTENSIONS = new Set([
+  'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'xml', 'html', 'htm',
+  'css', 'js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'java', 'c', 'cpp', 'h',
+  'go', 'rs', 'sh', 'bash', 'zsh', 'yaml', 'yml', 'toml', 'ini', 'cfg',
+  'conf', 'env', 'log', 'sql', 'graphql', 'svg', 'tex', 'rtf',
+]);
+
+function isReadableTextFile(file: File): boolean {
+  if (file.type.startsWith('text/')) return true;
+  if (file.type === 'application/json') return true;
+  if (file.type === 'application/xml') return true;
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  return TEXT_EXTENSIONS.has(ext);
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
 }
