@@ -49,14 +49,14 @@ export const useStore = create<AppState>((set) => ({
     set((state) => {
       const next = new Set(state.dismissedJobIds);
       next.add(jobId);
-      persistSessionState(next, state.cancelingJobIds);
+      persistDismissedJobIds(next);
       return { dismissedJobIds: next };
     }),
   dismissJobs: (jobIds) =>
     set((state) => {
       const next = new Set(state.dismissedJobIds);
       jobIds.forEach((id) => next.add(id));
-      persistSessionState(next, state.cancelingJobIds);
+      persistDismissedJobIds(next);
       return { dismissedJobIds: next };
     }),
 
@@ -65,7 +65,7 @@ export const useStore = create<AppState>((set) => ({
     set((state) => {
       const next = new Set(state.cancelingJobIds);
       next.add(jobId);
-      persistSessionState(state.dismissedJobIds, next);
+      persistCancelingJobIds(next);
       return { cancelingJobIds: next };
     }),
 
@@ -75,19 +75,16 @@ export const useStore = create<AppState>((set) => ({
   setDarkMode: (dark) => set({ darkMode: dark }),
 }));
 
-// Persist both dismissed and canceling IDs to session storage
-function persistSessionState(dismissed: Set<string>, canceling: Set<string>) {
+// Persist dismissed IDs to local storage (survives extension reload / browser restart)
+function persistDismissedJobIds(dismissed: Set<string>) {
   try {
-    chrome.storage.session.set({
-      dismissedJobIds: [...dismissed],
-      cancelingJobIds: [...canceling],
-    });
+    chrome.storage.local.set({ dismissedJobIds: [...dismissed] });
   } catch {
     // ignore
   }
 }
 
-// Also persist when cancelingJobIds are cleaned up from useActiveJobs
+// Persist canceling IDs to session storage (ephemeral, clears on browser restart)
 export function persistCancelingJobIds(ids: Set<string>) {
   try {
     chrome.storage.session.set({ cancelingJobIds: [...ids] });
@@ -96,20 +93,33 @@ export function persistCancelingJobIds(ids: Set<string>) {
   }
 }
 
-// Hydrate persisted state from session storage on startup
+// Hydrate persisted state from both storage areas on startup
 try {
-  chrome.storage.session.get(['dismissedJobIds', 'cancelingJobIds'], (data) => {
-    const dismissed = data.dismissedJobIds?.length
-      ? new Set<string>(data.dismissedJobIds)
-      : new Set<string>();
-    const canceling = data.cancelingJobIds?.length
-      ? new Set<string>(data.cancelingJobIds)
-      : new Set<string>();
-    useStore.setState({
-      dismissedJobIds: dismissed,
-      cancelingJobIds: canceling,
-      hydrated: true,
-    });
+  let localDone = false;
+  let sessionDone = false;
+  let dismissed = new Set<string>();
+  let canceling = new Set<string>();
+
+  const maybeFinish = () => {
+    if (localDone && sessionDone) {
+      useStore.setState({ dismissedJobIds: dismissed, cancelingJobIds: canceling, hydrated: true });
+    }
+  };
+
+  chrome.storage.local.get(['dismissedJobIds'], (data) => {
+    if (data.dismissedJobIds?.length) {
+      dismissed = new Set<string>(data.dismissedJobIds);
+    }
+    localDone = true;
+    maybeFinish();
+  });
+
+  chrome.storage.session.get(['cancelingJobIds'], (data) => {
+    if (data.cancelingJobIds?.length) {
+      canceling = new Set<string>(data.cancelingJobIds);
+    }
+    sessionDone = true;
+    maybeFinish();
   });
 } catch {
   // Not in extension context — mark as hydrated immediately

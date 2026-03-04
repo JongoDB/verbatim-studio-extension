@@ -28,6 +28,7 @@
   "options_page": "src/options/index.html",
   "permissions": [
     "activeTab",
+    "tabs",
     "sidePanel",
     "contextMenus",
     "notifications",
