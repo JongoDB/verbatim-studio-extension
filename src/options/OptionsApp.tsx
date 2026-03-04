@@ -25,7 +25,11 @@ export function OptionsApp() {
   return (
     <div className="max-w-xl mx-auto p-8">
       <div className="flex items-center gap-3 mb-8">
-        <span className="text-3xl font-bold text-verbatim-500">V</span>
+        <img
+          src={chrome.runtime.getURL('verbatim-settings-icon.png')}
+          alt="Verbatim"
+          className="w-10 h-10 rounded-xl"
+        />
         <div>
           <h1 className="text-xl font-bold">Verbatim Studio Extension</h1>
           <p className="text-sm text-gray-500">Settings</p>

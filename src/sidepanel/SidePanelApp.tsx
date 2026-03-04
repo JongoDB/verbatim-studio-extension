@@ -13,6 +13,7 @@ import {
   Loader,
   ChevronDown,
   MessageSquare,
+  Upload,
 } from 'lucide-react';
 import { ConnectionBadge } from '@/components/ConnectionBadge';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
@@ -24,6 +25,7 @@ import {
   saveConversation,
   listDocuments,
   listRecordings,
+  uploadDocument,
 } from '@/lib/api';
 import type { ChatMessage, ChatContext, Conversation, Document, Recording } from '@/types';
 
@@ -51,6 +53,8 @@ export function SidePanelApp() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Check for pending context from context menu
   useEffect(() => {
@@ -237,6 +241,34 @@ export function SidePanelApp() {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const doc = await uploadDocument(file, file.name);
+        if (doc?.id) {
+          setContext((prev) => ({
+            ...prev,
+            document_ids: [...(prev.document_ids || []), doc.id],
+            document_names: [
+              ...(prev.document_names || []),
+              doc.title || doc.name || doc.filename || file.name,
+            ],
+          }));
+        }
+      }
+    } catch {
+      // ignore upload errors
+    } finally {
+      setUploading(false);
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
@@ -396,6 +428,21 @@ export function SidePanelApp() {
             >
               <Paperclip className="w-4 h-4" />
             </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className={`btn-ghost p-1.5 rounded-lg text-gray-400 hover:text-verbatim-500 ${uploading ? 'animate-pulse' : ''}`}
+              title="Upload file from computer"
+              disabled={uploading}
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileUpload}
+            />
           </div>
           <textarea
             ref={inputRef}
