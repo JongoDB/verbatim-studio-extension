@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Camera, Scissors, Monitor } from 'lucide-react';
-import { uploadDocument } from '@/lib/api';
+import React, { useState, useEffect } from 'react';
+import { Camera, Scissors, Monitor, Upload, X } from 'lucide-react';
+import { uploadDocument, triggerOcr } from '@/lib/api';
 
 interface ScreenCaptureViewProps {
   connected: boolean;
@@ -9,46 +9,41 @@ interface ScreenCaptureViewProps {
 export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
   const [capturing, setCapturing] = useState(false);
   const [status, setStatus] = useState('');
+  const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
+  const [runOcr, setRunOcr] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
-  const handleFullCapture = async () => {
+  // Check for pending capture from a region select (popup was closed during selection)
+  useEffect(() => {
+    chrome.storage.session.get('pendingCapture', (data) => {
+      if (data.pendingCapture) {
+        setPreviewDataUrl(data.pendingCapture);
+      }
+    });
+  }, []);
+
+  const handleFullCapture = () => {
     if (!connected) return;
     setCapturing(true);
     setStatus('');
 
-    try {
-      // Capture the visible tab and upload directly
-      chrome.tabs.captureVisibleTab(
-        { format: 'png' },
-        async (dataUrl) => {
-          if (chrome.runtime.lastError || !dataUrl) {
-            setStatus('Failed to capture tab');
-            setCapturing(false);
-            return;
-          }
-
-          try {
-            const response = await fetch(dataUrl);
-            const blob = await response.blob();
-            await uploadDocument(blob, `screenshot-${Date.now()}.png`);
-            setStatus('Screenshot uploaded!');
-          } catch {
-            setStatus('Failed to upload screenshot');
-          } finally {
-            setCapturing(false);
-          }
-        },
-      );
-    } catch {
-      setStatus('Failed to capture');
-      setCapturing(false);
-    }
+    chrome.tabs.captureVisibleTab(
+      { format: 'png' },
+      (dataUrl) => {
+        setCapturing(false);
+        if (chrome.runtime.lastError || !dataUrl) {
+          setStatus('Failed to capture tab');
+          return;
+        }
+        setPreviewDataUrl(dataUrl);
+      },
+    );
   };
 
   const handleRegionCapture = () => {
     if (!connected) return;
     setCapturing(true);
 
-    // Capture the tab while popup is still open, then send to content script
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tab = tabs[0];
       if (!tab?.id) {
@@ -66,14 +61,12 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
             return;
           }
 
-          // Try sending to content script; inject it first if not present
           const sendToContentScript = () => {
             chrome.tabs.sendMessage(
               tab.id!,
               { type: 'SCREEN_CAPTURE_RESULT', dataUrl },
               (response) => {
                 if (chrome.runtime.lastError) {
-                  // Content script not injected yet - inject programmatically
                   chrome.scripting.executeScript(
                     {
                       target: { tabId: tab.id! },
@@ -81,20 +74,24 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
                     },
                     () => {
                       if (chrome.runtime.lastError) {
-                        // Protected page — fall back to full-page upload
-                        fallbackFullUpload(dataUrl);
+                        // Protected page — capture full page as preview instead
+                        setPreviewDataUrl(dataUrl);
+                        setCapturing(false);
+                        setStatus('Region select not available on this page — full page captured');
                         return;
                       }
-                      // Retry after injection
                       setTimeout(() => {
                         chrome.tabs.sendMessage(
                           tab.id!,
                           { type: 'SCREEN_CAPTURE_RESULT', dataUrl },
                           (retryResponse) => {
                             if (chrome.runtime.lastError) {
-                              fallbackFullUpload(dataUrl);
+                              setPreviewDataUrl(dataUrl);
+                              setCapturing(false);
+                              setStatus('Region select not available — full page captured');
                               return;
                             }
+                            // Popup will close; preview shows on next open
                             window.close();
                           },
                         );
@@ -113,17 +110,34 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
     });
   };
 
-  const fallbackFullUpload = async (dataUrl: string) => {
+  const handleUpload = async () => {
+    if (!previewDataUrl) return;
+    setUploading(true);
+    setStatus('');
+
     try {
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-      await uploadDocument(blob, `screenshot-${Date.now()}.png`);
-      setStatus('Region select not available on this page — full screenshot uploaded instead');
+      chrome.runtime.sendMessage(
+        { type: 'UPLOAD_CAPTURE', dataUrl: previewDataUrl, runOcr },
+        (response) => {
+          setUploading(false);
+          if (response?.error) {
+            setStatus('Failed to upload screenshot');
+          } else {
+            setStatus('Screenshot uploaded!');
+            setPreviewDataUrl(null);
+          }
+        },
+      );
     } catch {
       setStatus('Failed to upload screenshot');
-    } finally {
-      setCapturing(false);
+      setUploading(false);
     }
+  };
+
+  const handleDiscard = () => {
+    setPreviewDataUrl(null);
+    setStatus('');
+    chrome.runtime.sendMessage({ type: 'DISCARD_CAPTURE' });
   };
 
   if (!connected) {
@@ -134,6 +148,77 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
     );
   }
 
+  // Preview mode
+  if (previewDataUrl) {
+    return (
+      <div className="p-4 space-y-4">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <Camera className="w-4 h-4 text-verbatim-500" />
+          Screenshot Preview
+        </h2>
+
+        <div className="card overflow-hidden">
+          <img
+            src={previewDataUrl}
+            alt="Screenshot"
+            className="w-full max-h-[240px] object-contain bg-gray-100 dark:bg-gray-800"
+          />
+        </div>
+
+        <label className="flex items-center justify-between cursor-pointer">
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            Run OCR on image
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={runOcr}
+            onClick={() => setRunOcr(!runOcr)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              runOcr ? 'bg-verbatim-500' : 'bg-gray-300 dark:bg-gray-600'
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                runOcr ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              }`}
+            />
+          </button>
+        </label>
+
+        {status && (
+          <div
+            className={`text-sm text-center ${
+              status.includes('Failed') ? 'text-red-500' : 'text-green-600'
+            }`}
+          >
+            {status}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm"
+            onClick={handleUpload}
+            disabled={uploading}
+          >
+            <Upload className="w-4 h-4" />
+            {uploading ? 'Uploading...' : 'Upload'}
+          </button>
+          <button
+            className="btn-secondary flex items-center justify-center gap-2 text-sm"
+            onClick={handleDiscard}
+            disabled={uploading}
+          >
+            <X className="w-4 h-4" />
+            Discard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Capture options
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-sm font-semibold flex items-center gap-2">
@@ -184,7 +269,7 @@ export function ScreenCaptureView({ connected }: ScreenCaptureViewProps) {
           className={`text-center text-sm ${
             status.includes('Failed')
               ? 'text-red-500'
-              : status.includes('instead')
+              : status.includes('not available')
                 ? 'text-amber-600 dark:text-amber-400'
                 : 'text-green-600'
           }`}

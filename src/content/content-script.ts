@@ -138,17 +138,25 @@ function showRegionSelector(captureDataUrl: string) {
 
     if (w < 10 || h < 10) return; // Too small, ignore
 
-    // Send region coordinates (scaled to device pixel ratio)
+    // Crop the region from the original image using a canvas
     const dpr = window.devicePixelRatio;
+    const cropCanvas = document.createElement('canvas');
+    const cropW = Math.round(w * dpr);
+    const cropH = Math.round(h * dpr);
+    cropCanvas.width = cropW;
+    cropCanvas.height = cropH;
+    const cropCtx = cropCanvas.getContext('2d')!;
+    cropCtx.drawImage(
+      img,
+      Math.round(x * dpr), Math.round(y * dpr), cropW, cropH,
+      0, 0, cropW, cropH,
+    );
+    const croppedDataUrl = cropCanvas.toDataURL('image/png');
+
+    // Send cropped image to service worker for preview
     chrome.runtime.sendMessage({
       type: 'CAPTURE_REGION',
-      region: {
-        x: Math.round(x * dpr),
-        y: Math.round(y * dpr),
-        width: Math.round(w * dpr),
-        height: Math.round(h * dpr),
-      },
-      dataUrl: captureDataUrl,
+      croppedDataUrl,
     });
   };
 

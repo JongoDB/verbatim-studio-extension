@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Mic,
   Upload,
@@ -25,6 +25,15 @@ export function PopupApp() {
   const connected = useConnectionStatus();
   const activeJobs = useActiveJobs();
   useDarkMode();
+
+  // Auto-open capture view if there's a pending screenshot from region select
+  useEffect(() => {
+    chrome.storage.session.get('pendingCapture', (data) => {
+      if (data.pendingCapture) {
+        setView('capture');
+      }
+    });
+  }, []);
 
   const openSidePanel = () => {
     chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });

@@ -60,7 +60,7 @@ export function JobsView() {
               <div className="flex items-center gap-2">
                 <JobStatusIcon status={job.status} />
                 <span className="text-sm font-medium capitalize">
-                  {job.type.replace(/_/g, ' ')}
+                  {(job.type || 'processing').replace(/_/g, ' ')}
                 </span>
               </div>
               <StatusBadge status={job.status} />

@@ -390,8 +390,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'CAPTURE_REGION') {
-    handleRegionCapture(message.region, message.dataUrl);
+    // Store the cropped screenshot for preview in popup
+    chrome.storage.session.set({ pendingCapture: message.croppedDataUrl });
+    return false;
+  }
+
+  // Upload a confirmed capture from the popup preview
+  if (message.type === 'UPLOAD_CAPTURE') {
+    uploadCaptureFromPreview(message.dataUrl, message.runOcr)
+      .then((result) => sendResponse({ success: true, document: result }))
+      .catch((err) => sendResponse({ error: err.message }));
     return true;
+  }
+
+  // Discard pending capture
+  if (message.type === 'DISCARD_CAPTURE') {
+    chrome.storage.session.remove('pendingCapture');
+    return false;
   }
 
   return false;
@@ -455,42 +470,29 @@ async function uploadScreenshot(dataUrl: string) {
   }
 }
 
-async function handleRegionCapture(
-  region: { x: number; y: number; width: number; height: number },
-  dataUrl: string,
-) {
-  try {
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    const bitmap = await createImageBitmap(blob, region.x, region.y, region.width, region.height);
+async function uploadCaptureFromPreview(dataUrl: string, runOcr: boolean) {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
 
-    const canvas = new OffscreenCanvas(region.width, region.height);
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(bitmap, 0, 0);
+  const formData = new FormData();
+  formData.append('file', blob, `screenshot-${Date.now()}.png`);
 
-    const croppedBlob = await canvas.convertToBlob({ type: 'image/png' });
+  const res = await fetch(`${getBaseUrl()}/api/documents`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  const doc = await res.json();
 
-    const formData = new FormData();
-    formData.append('file', croppedBlob, `screenshot-${Date.now()}.png`);
-
-    await fetch(`${getBaseUrl()}/api/documents`, {
+  // Trigger OCR if requested
+  if (runOcr && doc?.id) {
+    fetch(`${getBaseUrl()}/api/documents/${doc.id}/ocr`, {
       method: 'POST',
-      body: formData,
-    });
-
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon-128.png',
-      title: 'Verbatim Studio',
-      message: 'Screenshot uploaded successfully',
-    });
-  } catch (err) {
-    console.error('Failed to upload screenshot:', err);
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon-128.png',
-      title: 'Verbatim Studio',
-      message: 'Failed to upload screenshot',
-    });
+    }).catch(() => {});
   }
+
+  // Clear pending capture
+  chrome.storage.session.remove('pendingCapture');
+
+  return doc;
 }
