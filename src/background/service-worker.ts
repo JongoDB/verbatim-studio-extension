@@ -67,7 +67,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const formData = new FormData();
       formData.append('file', blob, filename);
 
-      await fetch(`${getBaseUrl()}/api/documents/upload`, {
+      await fetch(`${getBaseUrl()}/api/documents`, {
         method: 'POST',
         body: formData,
       });
@@ -242,7 +242,8 @@ async function updateJobBadge() {
   try {
     const res = await fetch(`${getBaseUrl()}/api/jobs`);
     if (!res.ok) return;
-    const jobs: Job[] = await res.json();
+    const data = await res.json();
+    const jobs: Job[] = data.items || data;
     const activeCount = jobs.filter((j) => j.status === 'pending' || j.status === 'running').length;
     chrome.action.setBadgeText({ text: activeCount > 0 ? String(activeCount) : '' });
     chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' });
@@ -316,7 +317,7 @@ async function handleRegionCapture(
     const formData = new FormData();
     formData.append('file', croppedBlob, `screenshot-${Date.now()}.png`);
 
-    await fetch(`${getBaseUrl()}/api/documents/upload`, {
+    await fetch(`${getBaseUrl()}/api/documents`, {
       method: 'POST',
       body: formData,
     });

@@ -32,6 +32,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+// Paginated response wrapper
+interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 // Health
 export async function checkHealth(): Promise<HealthResponse> {
   return request('/health');
@@ -39,7 +47,8 @@ export async function checkHealth(): Promise<HealthResponse> {
 
 // Recordings
 export async function listRecordings(): Promise<Recording[]> {
-  return request('/api/recordings');
+  const data = await request<PaginatedResponse<Recording>>('/api/recordings');
+  return data.items;
 }
 
 export async function getRecording(id: string): Promise<Recording> {
@@ -53,10 +62,10 @@ export async function uploadRecording(
 ): Promise<Recording> {
   const formData = new FormData();
   formData.append('file', file, `${name}.webm`);
-  formData.append('name', name);
+  formData.append('title', name);
   if (projectId) formData.append('project_id', projectId);
 
-  const res = await fetch(`${_baseUrl}/api/recordings`, {
+  const res = await fetch(`${_baseUrl}/api/recordings/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -66,7 +75,8 @@ export async function uploadRecording(
 
 // Documents
 export async function listDocuments(): Promise<Document[]> {
-  return request('/api/documents');
+  const data = await request<PaginatedResponse<Document>>('/api/documents');
+  return data.items;
 }
 
 export async function uploadDocument(
@@ -78,7 +88,7 @@ export async function uploadDocument(
   formData.append('file', file, filename);
   if (projectId) formData.append('project_id', projectId);
 
-  const res = await fetch(`${_baseUrl}/api/documents/upload`, {
+  const res = await fetch(`${_baseUrl}/api/documents`, {
     method: 'POST',
     body: formData,
   });
@@ -88,7 +98,8 @@ export async function uploadDocument(
 
 // Projects
 export async function listProjects(): Promise<Project[]> {
-  return request('/api/projects');
+  const data = await request<PaginatedResponse<Project>>('/api/projects');
+  return data.items;
 }
 
 // AI Chat (SSE streaming)
@@ -202,7 +213,8 @@ export async function streamMultiChat(
 
 // Conversations
 export async function listConversations(): Promise<Conversation[]> {
-  return request('/api/conversations');
+  const data = await request<PaginatedResponse<Conversation>>('/api/conversations');
+  return data.items;
 }
 
 export async function saveConversation(conversation: {
@@ -220,12 +232,13 @@ export async function search(
   query: string,
   mode: 'semantic' | 'keyword' = 'keyword',
 ): Promise<SearchResponse> {
-  return request(`/api/search?q=${encodeURIComponent(query)}&mode=${mode}`);
+  return request(`/api/search/global?q=${encodeURIComponent(query)}&mode=${mode}`);
 }
 
 // Jobs
 export async function listJobs(): Promise<Job[]> {
-  return request('/api/jobs');
+  const data = await request<PaginatedResponse<Job>>('/api/jobs');
+  return data.items;
 }
 
 export async function getJob(id: string): Promise<Job> {
