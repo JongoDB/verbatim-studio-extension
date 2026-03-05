@@ -270,6 +270,11 @@ export function SidePanelApp() {
         });
       };
 
+      // Build history from previous messages (exclude current user msg + empty assistant placeholder)
+      const history = messages
+        .slice(0, -2)
+        .map((m) => ({ role: m.role, content: m.content }));
+
       if (hasMultiDocs) {
         await streamMultiChat(
           messageText,
@@ -289,6 +294,7 @@ export function SidePanelApp() {
           },
           onChunk,
           abort.signal,
+          history,
         );
       }
     } catch (err: any) {

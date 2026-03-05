@@ -210,7 +210,7 @@ export async function listProjects(): Promise<Project[]> {
   return data.items;
 }
 
-// AI Chat (SSE streaming)
+// AI Chat (SSE streaming) — uses /chat/multi which has Max's identity and help context
 export async function streamChat(
   message: string,
   context?: {
@@ -222,21 +222,16 @@ export async function streamChat(
   },
   onChunk?: (text: string) => void,
   signal?: AbortSignal,
+  history?: { role: string; content: string }[],
 ): Promise<string> {
-  // Build request body matching ChatRequest schema
   const body: Record<string, unknown> = { message };
 
-  // Build rich context: combine selected text, page URL, and document/recording content
-  const contextParts: string[] = [];
-  if (context?.selected_text) contextParts.push(context.selected_text);
-  if (context?.documents_content) contextParts.push(context.documents_content);
-
-  if (contextParts.length > 0) body.context = contextParts.join('\n\n');
-  if (context?.page_url) body.page_url = context.page_url;
   if (context?.document_ids?.length) body.document_ids = context.document_ids;
   if (context?.recording_ids?.length) body.recording_ids = context.recording_ids;
+  if (context?.documents_content) body.file_context = context.documents_content;
+  if (history?.length) body.history = history;
 
-  const res = await fetch(`${_baseUrl}/api/ai/chat/stream`, {
+  const res = await fetch(`${_baseUrl}/api/ai/chat/multi`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
