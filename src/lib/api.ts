@@ -258,7 +258,8 @@ export async function streamChat(
         if (data === '[DONE]') break;
         try {
           const parsed = JSON.parse(data);
-          const text = parsed.content || parsed.text || parsed.delta || '';
+          if (parsed.done) break;
+          const text = parsed.token || parsed.content || parsed.text || parsed.delta || '';
           if (text) {
             fullText += text;
             onChunk?.(text);
