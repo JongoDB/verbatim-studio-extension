@@ -55,13 +55,8 @@ export function SearchView({ connected }: SearchViewProps) {
     }
 
     if (path) {
-      chrome.windows.create({
-        url: `http://127.0.0.1:5173${path}`,
-        type: 'popup',
-        width: 900,
-        height: 700,
-        focused: true,
-      });
+      // Use verbatim:// custom protocol to open in the Electron desktop app
+      chrome.tabs.create({ url: `verbatim:/${path}` });
     }
   };
 
