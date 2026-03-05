@@ -562,7 +562,7 @@ export function SidePanelApp() {
       </div>
 
       {/* Context chips */}
-      {(context.page_url || context.page_content || context.selected_text || context.document_ids?.length || context.recording_ids?.length) && (
+      {(context.page_url || context.page_content || context.selected_text || (context.document_ids?.length ?? 0) > 0 || (context.recording_ids?.length ?? 0) > 0) && (
         <div className="px-4 py-2 border-t flex flex-wrap gap-1.5">
           {context.page_url && (
             <ContextChip
