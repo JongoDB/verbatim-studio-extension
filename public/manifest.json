@@ -38,13 +38,5 @@
   ],
   "host_permissions": [
     "http://127.0.0.1:52780/*"
-  ],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content-script.js"],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
   ]
 }
