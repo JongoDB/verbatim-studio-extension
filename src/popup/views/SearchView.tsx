@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Search, FileText, Mic, StickyNote, MessageSquare, ExternalLink } from 'lucide-react';
-import { search, getBaseUrl } from '@/lib/api';
+import { search } from '@/lib/api';
 import { EmptyState } from '@/components/EmptyState';
 import { formatRelativeTime } from '@/lib/utils';
 import type { SearchResult } from '@/types';
@@ -56,7 +56,7 @@ export function SearchView({ connected }: SearchViewProps) {
 
     if (path) {
       chrome.windows.create({
-        url: `${getBaseUrl()}${path}`,
+        url: `http://127.0.0.1:5173${path}`,
         type: 'popup',
         width: 900,
         height: 700,
